@@ -24,7 +24,13 @@ export default function NewPipelinePage() {
       });
       router.push(`/pipelines/${pipelineId}`);
     } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || "Failed to create pipeline");
+      const status = err?.response?.status;
+      const serverMsg = err?.response?.data?.error;
+      if (status === 409) {
+        setError(`Pipeline '${pipelineId}' already exists. Choose a different ID.`);
+      } else {
+        setError(serverMsg || err?.message || "Failed to create pipeline");
+      }
       setCreating(false);
     }
   }
