@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
-import { LayoutGrid, FileCode2, Play, Settings } from "lucide-react";
+import { LayoutGrid, FileCode2, Play, Settings, Terminal } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Elwood Portal",
@@ -12,6 +12,7 @@ const navItems = [
   { href: "/", icon: LayoutGrid, label: "Dashboard" },
   { href: "/pipelines", icon: FileCode2, label: "Pipelines" },
   { href: "/executions", icon: Play, label: "Executions" },
+  { href: "/tools/playground", icon: Terminal, label: "Playground" },
   { href: "/admin", icon: Settings, label: "Admin" },
 ];
 
