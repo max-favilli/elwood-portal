@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Play, Trash2, Clock, AlertTriangle } from "lucide-react";
+import { Play, Trash2, Clock, AlertTriangle, BookOpen, Search, ChevronRight } from "lucide-react";
+import allExamples from "@/data/examples.json";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -48,7 +49,36 @@ export default function PlaygroundPage() {
   const [error, setError] = useState<string | null>(null);
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
+  const [showExamples, setShowExamples] = useState(true);
+  const [exampleSearch, setExampleSearch] = useState("");
+  const [selectedExample, setSelectedExample] = useState<string | null>(null);
   const monacoRef = useRef<typeof import("monaco-editor") | null>(null);
+
+  type Example = typeof allExamples[0];
+  const filteredExamples = useMemo(() => {
+    if (!exampleSearch.trim()) return allExamples as Example[];
+    const q = exampleSearch.toLowerCase();
+    return (allExamples as Example[]).filter(
+      (ex) => ex.title.toLowerCase().includes(q) || ex.id.toLowerCase().includes(q) || ex.category.toLowerCase().includes(q)
+    );
+  }, [exampleSearch]);
+
+  const groupedExamples = useMemo(() => {
+    const groups: Record<string, Example[]> = {};
+    for (const ex of filteredExamples) {
+      (groups[ex.category] ??= []).push(ex);
+    }
+    return groups;
+  }, [filteredExamples]);
+
+  function loadExample(ex: Example) {
+    setScript(ex.script);
+    setInput(ex.input);
+    setOutput("");
+    setError(null);
+    setDurationMs(null);
+    setSelectedExample(ex.id);
+  }
 
   const handleRun = useCallback(async () => {
     setRunning(true);
@@ -129,6 +159,17 @@ export default function PlaygroundPage() {
           <span className="text-xs text-[var(--color-text-muted)]">— test Elwood expressions</span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowExamples(!showExamples)}
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs border rounded ${
+              showExamples
+                ? "bg-[var(--color-bg-active)] border-[var(--color-accent)] text-white"
+                : "bg-[var(--color-bg-tertiary)] border-[var(--color-border)] hover:bg-[var(--color-bg-hover)]"
+            }`}
+          >
+            <BookOpen size={14} />
+            Examples ({allExamples.length})
+          </button>
           {durationMs !== null && (
             <span className="flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
               <Clock size={12} />
@@ -156,6 +197,52 @@ export default function PlaygroundPage() {
 
       {/* Editor panels */}
       <div className="flex flex-1 min-h-0">
+        {/* Examples sidebar */}
+        {showExamples && (
+          <div className="w-72 flex-shrink-0 flex flex-col bg-[var(--color-bg-secondary)] border-r border-[var(--color-border)]">
+            <div className="px-3 py-2 border-b border-[var(--color-border)]">
+              <div className="flex items-center gap-2 bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded px-2 py-1.5">
+                <Search size={12} className="text-[var(--color-text-muted)]" />
+                <input
+                  type="text"
+                  value={exampleSearch}
+                  onChange={(e) => setExampleSearch(e.target.value)}
+                  placeholder="Search examples..."
+                  className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--color-text-muted)]"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {Object.entries(groupedExamples).map(([category, examples]) => (
+                <div key={category}>
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)]">
+                    {category}
+                  </div>
+                  {examples.map((ex) => (
+                    <button
+                      key={ex.id}
+                      onClick={() => loadExample(ex)}
+                      className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors ${
+                        selectedExample === ex.id
+                          ? "bg-[var(--color-bg-active)] text-white"
+                          : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+                      }`}
+                    >
+                      <ChevronRight size={10} className="flex-shrink-0 opacity-40" />
+                      <span className="truncate">{ex.title}</span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+              {filteredExamples.length === 0 && (
+                <div className="px-3 py-4 text-xs text-[var(--color-text-muted)] text-center">
+                  No examples match &quot;{exampleSearch}&quot;
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Left: Script editor */}
         <div className="flex-1 flex flex-col border-r border-[var(--color-border)]">
           <div className="px-3 py-1.5 text-xs text-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] border-b border-[var(--color-border)]">
