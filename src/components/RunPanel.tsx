@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { Play, Clock, AlertTriangle, CheckCircle2, X } from "lucide-react";
+import { Play, Clock, AlertTriangle, CheckCircle2, X, AlignLeft } from "lucide-react";
 import { executePipeline, triggerViaEndpoint, type TriggerResult } from "@/lib/api";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
@@ -23,7 +23,22 @@ export default function RunPanel({ pipelineId, endpoint, authUser, authPassword,
   const [payload, setPayload] = useState(DEFAULT_PAYLOAD);
   const [result, setResult] = useState<TriggerResult | null>(null);
   const [running, setRunning] = useState(false);
-  const [mode, setMode] = useState<"trigger" | "execute">(endpoint ? "trigger" : "execute");
+  // Default to Direct Execute — simpler, bypasses auth. User can switch to HTTP Trigger
+  // when they want to test the full flow including endpoint routing and auth validation.
+  const [mode, setMode] = useState<"trigger" | "execute">("execute");
+
+  function handleFormat() {
+    const lines = payload.split("\n");
+    const nonEmpty = lines.filter((l) => l.trim().length > 0);
+    if (nonEmpty.length === 0) return;
+    const minIndent = Math.min(...nonEmpty.map((l) => l.match(/^(\s*)/)?.[1].length ?? 0));
+    if (minIndent === 0) {
+      // Already at column 0 — try JSON pretty-print instead
+      try { setPayload(JSON.stringify(JSON.parse(payload), null, 2)); } catch { /* not valid JSON */ }
+      return;
+    }
+    setPayload(lines.map((l) => l.trim().length === 0 ? "" : l.substring(minIndent)).join("\n"));
+  }
 
   async function handleRun() {
     setRunning(true);
@@ -94,6 +109,11 @@ export default function RunPanel({ pipelineId, endpoint, authUser, authPassword,
         </div>
 
         <div className="flex items-center gap-2">
+          <button onClick={handleFormat}
+            className="flex items-center gap-1 px-2 py-1 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded hover:bg-[var(--color-bg-hover)]"
+            title="Format / dedent payload">
+            <AlignLeft size={12} />
+          </button>
           <button
             onClick={handleRun}
             disabled={running}
