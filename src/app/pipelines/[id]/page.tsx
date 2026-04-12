@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Save, CheckCircle, ArrowLeft, Plus, X, FileCode2 } from "lucide-react";
+import { Save, CheckCircle, ArrowLeft, Plus, X, FileCode2, AlignLeft } from "lucide-react";
 import { getPipeline, savePipeline, validatePipeline, type PipelineDefinition } from "@/lib/api";
 
 // Monaco must be loaded client-side only (no SSR)
@@ -112,6 +112,31 @@ export default function PipelineEditorPage() {
     monaco.editor.defineTheme("elwood-dark", DARK_THEME);
   }
 
+  function handleFormat() {
+    // Dedent: strip the common leading whitespace from all non-empty lines.
+    // Fixes the paste-from-chat/docs issue where every line gets extra indentation.
+    const content = isYamlTab ? yaml : (scripts[activeTab] ?? "");
+    const lines = content.split("\n");
+    const nonEmptyLines = lines.filter((l) => l.trim().length > 0);
+    if (nonEmptyLines.length === 0) return;
+
+    const minIndent = Math.min(
+      ...nonEmptyLines.map((l) => l.match(/^(\s*)/)?.[1].length ?? 0)
+    );
+    if (minIndent === 0) return; // already at column 0
+
+    const dedented = lines
+      .map((l) => (l.trim().length === 0 ? "" : l.substring(minIndent)))
+      .join("\n");
+
+    if (isYamlTab) {
+      setYaml(dedented);
+    } else {
+      setScripts((prev) => ({ ...prev, [activeTab]: dedented }));
+    }
+    setDirty(true);
+  }
+
   function addScript() {
     const name = newScriptName.trim();
     if (!name) return;
@@ -168,6 +193,14 @@ export default function PipelineEditorPage() {
           {dirty && <span className="text-xs text-[var(--color-text-muted)]">(unsaved)</span>}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleFormat}
+            className="flex items-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded hover:bg-[var(--color-bg-hover)]"
+            title="Remove extra leading whitespace (fixes paste indentation)"
+          >
+            <AlignLeft size={14} />
+            Format
+          </button>
           {validationResult && (
             <span className={`text-xs px-2 py-1 rounded ${
               validationResult.valid
