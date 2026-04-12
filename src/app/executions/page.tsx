@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { listExecutions, type ExecutionState } from "@/lib/api";
-import { RefreshCw, CheckCircle2, XCircle, Clock, Loader2, Search } from "lucide-react";
+import { RefreshCw, CheckCircle2, XCircle, Clock, Loader2, Search, FlaskConical } from "lucide-react";
 
 const STATUS_LABELS: Record<number | string, { label: string; color: string; icon: typeof CheckCircle2 }> = {
   0: { label: "Pending", color: "text-[var(--color-text-muted)]", icon: Clock },
@@ -37,6 +37,7 @@ export default function ExecutionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [showTests, setShowTests] = useState<"all" | "real" | "test">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => { loadExecutions(); }, []);
@@ -56,11 +57,16 @@ export default function ExecutionsPage() {
     }
   }
 
-  const filtered = filter
-    ? executions.filter(e =>
-        e.pipelineName.toLowerCase().includes(filter.toLowerCase()) ||
-        e.executionId.toLowerCase().includes(filter.toLowerCase()))
-    : executions;
+  const filtered = executions.filter(e => {
+    // Text filter
+    if (filter && !e.pipelineName.toLowerCase().includes(filter.toLowerCase()) &&
+        !e.executionId.toLowerCase().includes(filter.toLowerCase()))
+      return false;
+    // Test/real filter
+    if (showTests === "real" && (e as any).isTest) return false;
+    if (showTests === "test" && !(e as any).isTest) return false;
+    return true;
+  });
 
   const selected = selectedId ? executions.find(e => e.executionId === selectedId) : null;
 
@@ -76,12 +82,23 @@ export default function ExecutionsPage() {
           </button>
         </div>
 
-        <div className="px-3 py-2 border-b border-[var(--color-border)]">
+        <div className="px-3 py-2 border-b border-[var(--color-border)] space-y-2">
           <div className="flex items-center gap-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded px-2 py-1.5">
             <Search size={12} className="text-[var(--color-text-muted)]" />
             <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter by pipeline or ID..."
               className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--color-text-muted)]" />
+          </div>
+          <div className="flex items-center gap-1 text-[10px]">
+            {(["all", "real", "test"] as const).map((v) => (
+              <button key={v} onClick={() => setShowTests(v)}
+                className={`px-2 py-0.5 rounded ${showTests === v
+                  ? "bg-[var(--color-accent)] text-white"
+                  : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+                }`}>
+                {v === "all" ? "All" : v === "real" ? "Real" : "Tests"}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -109,7 +126,15 @@ export default function ExecutionsPage() {
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-medium">{exec.pipelineName}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium">{exec.pipelineName}</span>
+                    {(exec as any).isTest && (
+                      <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
+                        <FlaskConical size={9} />
+                        test
+                      </span>
+                    )}
+                  </div>
                   <span className={`flex items-center gap-1 text-[10px] ${s.color}`}>
                     <Icon size={11} />
                     {s.label}
@@ -138,6 +163,11 @@ export default function ExecutionsPage() {
           <div>
             <div className="flex items-center gap-3 mb-6">
               <h2 className="text-lg font-semibold">{selected.pipelineName}</h2>
+              {(selected as any).isTest && (
+                <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
+                  <FlaskConical size={10} /> Test execution
+                </span>
+              )}
               {(() => {
                 const s = getStatus(selected.status);
                 const Icon = s.icon;

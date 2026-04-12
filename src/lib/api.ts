@@ -164,6 +164,7 @@ export async function executePipeline(pipelineId: string, payload: string): Prom
     const { data } = await api.post('/api/executions', {
       pipelineId,
       payload: JSON.parse(payload),
+      isTest: true,
     });
     return {
       statusCode: 200,
