@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { Play, Clock, AlertTriangle, CheckCircle2, X, AlignLeft } from "lucide-react";
+import { Play, Clock, AlertTriangle, CheckCircle2, X, AlignLeft, Copy, Terminal, ChevronDown } from "lucide-react";
 import { executePipeline, triggerViaEndpoint, type TriggerResult } from "@/lib/api";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
@@ -54,6 +54,57 @@ export default function RunPanel({ pipelineId, endpoint, authUser, authPassword,
     } finally {
       setRunning(false);
     }
+  }
+
+  const [showCopyMenu, setShowCopyMenu] = useState(false);
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
+  function generateCommand(format: "curl" | "powershell" | "bash"): string {
+    const compactPayload = payload.replace(/\n/g, "").replace(/\s{2,}/g, " ");
+
+    if (mode === "execute") {
+      const body = JSON.stringify({ pipelineId, payload: JSON.parse(payload) });
+      const url = `${API_BASE}/api/executions`;
+
+      if (format === "curl") {
+        return `curl -X POST "${url}" \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'`;
+      }
+      if (format === "powershell") {
+        return `Invoke-RestMethod -Uri "${url}" \`\n  -Method POST \`\n  -ContentType "application/json" \`\n  -Body '${body}'`;
+      }
+      // bash
+      return `curl -s -X POST "${url}" \\\n  -H "Content-Type: application/json" \\\n  -d '${body}' | jq .`;
+    }
+
+    // HTTP Trigger mode
+    const url = `${API_BASE}/api/v1/trigger${endpoint}`;
+    const authLine = authUser && authPassword
+      ? format === "powershell"
+        ? `$cred = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("${authUser}:${authPassword}"))\n`
+        : ""
+      : "";
+    const authHeader = authUser && authPassword
+      ? format === "curl" || format === "bash"
+        ? `-u "${authUser}:${authPassword}" `
+        : `-Headers @{ Authorization = "Basic $cred" } `
+      : "";
+
+    if (format === "curl") {
+      return `curl -X POST "${url}" \\\n  ${authHeader}\\\n  -H "Content-Type: application/json" \\\n  -d '${compactPayload}'`;
+    }
+    if (format === "powershell") {
+      return `${authLine}Invoke-WebRequest -Uri "${url}" \`\n  -Method POST \`\n  ${authHeader}\`\n  -ContentType "application/json" \`\n  -Body '${compactPayload}'`;
+    }
+    // bash
+    return `curl -s -X POST "${url}" \\\n  ${authHeader}\\\n  -H "Content-Type: application/json" \\\n  -d '${compactPayload}' | jq .`;
+  }
+
+  function copyCommand(format: "curl" | "powershell" | "bash") {
+    try {
+      const cmd = generateCommand(format);
+      navigator.clipboard.writeText(cmd);
+      setShowCopyMenu(false);
+    } catch { /* clipboard not available */ }
   }
 
   const isSuccess = result && !result.error && result.statusCode >= 200 && result.statusCode < 400;
@@ -114,6 +165,35 @@ export default function RunPanel({ pipelineId, endpoint, authUser, authPassword,
             title="Format / dedent payload">
             <AlignLeft size={12} />
           </button>
+
+          {/* Copy as... dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowCopyMenu((s) => !s)}
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded hover:bg-[var(--color-bg-hover)]"
+              title="Copy as curl / PowerShell / bash"
+            >
+              <Terminal size={12} />
+              <ChevronDown size={10} />
+            </button>
+            {showCopyMenu && (
+              <div className="absolute right-0 top-full mt-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded shadow-lg z-10 py-1 min-w-[160px]">
+                <button onClick={() => copyCommand("curl")}
+                  className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2">
+                  <Copy size={11} /> Copy as curl
+                </button>
+                <button onClick={() => copyCommand("powershell")}
+                  className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2">
+                  <Copy size={11} /> Copy as PowerShell
+                </button>
+                <button onClick={() => copyCommand("bash")}
+                  className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2">
+                  <Copy size={11} /> Copy as bash
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={handleRun}
             disabled={running}
