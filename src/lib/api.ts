@@ -118,6 +118,68 @@ export async function triggerExecution(pipelineId: string, input?: unknown): Pro
   return data.executionId;
 }
 
+export interface TriggerResult {
+  statusCode: number;
+  body: string;
+  durationMs: number;
+  error?: string;
+}
+
+export async function triggerViaEndpoint(
+  endpoint: string,
+  payload: string,
+  authUser?: string,
+  authPassword?: string,
+): Promise<TriggerResult> {
+  const start = performance.now();
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authUser && authPassword) {
+      headers['Authorization'] = 'Basic ' + btoa(`${authUser}:${authPassword}`);
+    }
+    const response = await fetch(`${API_BASE}/api/v1/trigger${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: payload,
+    });
+    const body = await response.text();
+    return {
+      statusCode: response.status,
+      body,
+      durationMs: Math.round(performance.now() - start),
+    };
+  } catch (err: any) {
+    return {
+      statusCode: 0,
+      body: '',
+      durationMs: Math.round(performance.now() - start),
+      error: err?.message || 'Request failed',
+    };
+  }
+}
+
+export async function executePipeline(pipelineId: string, payload: string): Promise<TriggerResult> {
+  const start = performance.now();
+  try {
+    const { data } = await api.post('/api/executions', {
+      pipelineId,
+      payload: JSON.parse(payload),
+    });
+    return {
+      statusCode: 200,
+      body: JSON.stringify(data, null, 2),
+      durationMs: Math.round(performance.now() - start),
+    };
+  } catch (err: any) {
+    return {
+      statusCode: err?.response?.status || 0,
+      body: JSON.stringify(err?.response?.data || { error: err?.message }, null, 2),
+      durationMs: Math.round(performance.now() - start),
+      error: err?.message,
+    };
+  }
+}
+
 export async function getHealth(): Promise<{ status: string; timestamp: string }> {
   const { data } = await api.get('/api/health');
   return data;

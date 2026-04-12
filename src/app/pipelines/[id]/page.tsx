@@ -3,9 +3,10 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Save, CheckCircle, ArrowLeft, FileCode2, AlignLeft } from "lucide-react";
+import { Save, CheckCircle, ArrowLeft, FileCode2, AlignLeft, Play } from "lucide-react";
 import { getPipeline, savePipeline, validatePipeline, type PipelineDefinition } from "@/lib/api";
 import PipelineFileTree from "@/components/PipelineFileTree";
+import RunPanel from "@/components/RunPanel";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -44,7 +45,16 @@ export default function PipelineEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [treeCollapsed, setTreeCollapsed] = useState(false);
+  const [showRunPanel, setShowRunPanel] = useState(false);
   const monacoRef = useRef<typeof import("monaco-editor") | null>(null);
+
+  // Extract endpoint and auth from the YAML for the run panel
+  const endpointMatch = yaml.match(/endpoint:\s*(\S+)/);
+  const triggerEndpoint = endpointMatch?.[1] || undefined;
+  const authUserMatch = yaml.match(/auth:[\s\S]*?user:\s*(.+)/);
+  const authPassMatch = yaml.match(/auth:[\s\S]*?password:\s*["']?([^\n"']+)/);
+  const triggerAuthUser = authUserMatch?.[1]?.trim();
+  const triggerAuthPass = authPassMatch?.[1]?.trim();
 
   useEffect(() => {
     if (isNew) { setYaml(DEFAULT_YAML); setLoading(false); setDirty(true); return; }
@@ -188,6 +198,16 @@ export default function PipelineEditorPage() {
             className="flex items-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-accent)] text-white rounded hover:opacity-90">
             <Save size={14} /> {saving ? "Saving..." : "Save"}
           </button>
+          {!isNew && (
+            <button onClick={() => setShowRunPanel((s) => !s)}
+              className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded ${
+                showRunPanel
+                  ? "bg-[var(--color-success)] text-black"
+                  : "bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] hover:bg-[var(--color-bg-hover)]"
+              }`}>
+              <Play size={14} /> Run
+            </button>
+          )}
         </div>
       </div>
 
@@ -201,44 +221,58 @@ export default function PipelineEditorPage() {
         </div>
       )}
 
-      {/* File tree + editor */}
-      <div className="flex flex-1 min-h-0">
-        <PipelineFileTree
-          yaml={yaml}
-          scripts={scripts}
-          activeFile={activeFile}
-          onSelectFile={setActiveFile}
-          onAddScript={addScript}
-          onRemoveScript={removeScript}
-          collapsed={treeCollapsed}
-          onToggleCollapsed={() => setTreeCollapsed((c) => !c)}
-        />
-
-        {/* Monaco editor */}
-        <div className="flex-1 min-h-0">
-          <MonacoEditor
-            key={activeFile}
-            language={currentLanguage}
-            theme="elwood-dark"
-            value={currentContent}
-            onChange={(value) => {
-              if (isYaml) setYaml(value ?? "");
-              else setScripts((prev) => ({ ...prev, [activeFile]: value ?? "" }));
-              setDirty(true);
-            }}
-            beforeMount={handleMonacoMount}
-            options={{
-              minimap: { enabled: false },
-              fontSize: 13,
-              lineNumbers: "on",
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              tabSize: 2,
-              wordWrap: "on",
-              padding: { top: 8 },
-            }}
+      {/* File tree + editor + run panel */}
+      <div className="flex flex-col flex-1 min-h-0">
+        {/* Editor area */}
+        <div className="flex flex-1 min-h-0">
+          <PipelineFileTree
+            yaml={yaml}
+            scripts={scripts}
+            activeFile={activeFile}
+            onSelectFile={setActiveFile}
+            onAddScript={addScript}
+            onRemoveScript={removeScript}
+            collapsed={treeCollapsed}
+            onToggleCollapsed={() => setTreeCollapsed((c) => !c)}
           />
+
+          {/* Monaco editor */}
+          <div className="flex-1 min-h-0">
+            <MonacoEditor
+              key={activeFile}
+              language={currentLanguage}
+              theme="elwood-dark"
+              value={currentContent}
+              onChange={(value) => {
+                if (isYaml) setYaml(value ?? "");
+                else setScripts((prev) => ({ ...prev, [activeFile]: value ?? "" }));
+                setDirty(true);
+              }}
+              beforeMount={handleMonacoMount}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 13,
+                lineNumbers: "on",
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                tabSize: 2,
+                wordWrap: "on",
+                padding: { top: 8 },
+              }}
+            />
+          </div>
         </div>
+
+        {/* Run panel (bottom) */}
+        {showRunPanel && (
+          <RunPanel
+            pipelineId={pipelineId}
+            endpoint={triggerEndpoint}
+            authUser={triggerAuthUser}
+            authPassword={triggerAuthPass}
+            onClose={() => setShowRunPanel(false)}
+          />
+        )}
       </div>
     </div>
   );
