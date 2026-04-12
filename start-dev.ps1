@@ -8,7 +8,8 @@ $apiDir = "C:\GitAzureDevOpsRepos\Elwood\dotnet\src\Elwood.Runtime.Api"
 $portalDir = "C:\GitAzureDevOpsRepos\elwood-portal"
 
 Write-Host "Starting Elwood Runtime API (http://localhost:5000) ..." -ForegroundColor Cyan
-$api = Start-Process -NoNewWindow -PassThru -FilePath "dotnet" -ArgumentList "run","--project",$apiDir -RedirectStandardOutput "$env:TEMP\elwood-api.log" -RedirectStandardError "$env:TEMP\elwood-api-err.log"
+# WorkingDirectory = API project dir so secrets.json and pipelines/ are found correctly
+$api = Start-Process -NoNewWindow -PassThru -FilePath "dotnet" -ArgumentList "run" -WorkingDirectory $apiDir -RedirectStandardOutput "$env:TEMP\elwood-api.log" -RedirectStandardError "$env:TEMP\elwood-api-err.log"
 
 Write-Host "Starting Elwood Portal (http://localhost:3000) ..." -ForegroundColor Cyan
 $portal = Start-Process -NoNewWindow -PassThru -FilePath "npm" -ArgumentList "run","dev" -WorkingDirectory $portalDir
