@@ -207,8 +207,12 @@ export interface ConnectorCall {
   timeoutMs?: number | null;
   requestHeaders?: Record<string, string[]> | null;
   requestBody?: string | null;
+  requestBodyBytes?: number | null;
+  requestBodyTruncated?: boolean;
   responseHeaders?: Record<string, string[]> | null;
   responseBody?: string | null;
+  responseBodyBytes?: number | null;
+  responseBodyTruncated?: boolean;
   statusCode?: number | null;
   reasonPhrase?: string | null;
   httpVersion?: string | null;
@@ -218,8 +222,8 @@ export interface ConnectorCall {
 export async function resumeExecution(id: string, acknowledgeUncertain = false): Promise<{ executionId: string }> {
   return (await api.post(`/api/executions/${encodeURIComponent(id)}/resume`, { acknowledgeUncertain })).data;
 }
-export async function replayExecution(id: string, revisionId?: string): Promise<{ executionId: string; replayOf: string }> {
-  return (await api.post(`/api/executions/${encodeURIComponent(id)}/replay`, { revisionId })).data;
+export async function replayExecution(id: string, revisionId?: string, acknowledgeUncertain = false): Promise<{ executionId: string; replayOf: string }> {
+  return (await api.post(`/api/executions/${encodeURIComponent(id)}/replay`, { revisionId, acknowledgeUncertain })).data;
 }
 export interface ExecutionInspection {
   execution: ExecutionState;

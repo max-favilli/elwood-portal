@@ -30,7 +30,7 @@ export default function RecoveryActions({ execution, onRecovered }: { execution:
     setBusy(true); setError("");
     try {
       const result = action === "resume" ? await resumeExecution(execution.executionId, reviewed)
-        : await replayExecution(execution.executionId, revision || undefined);
+        : await replayExecution(execution.executionId, revision || undefined, confirmed);
       onRecovered(result.executionId); setConfirmed(false); setReviewed(false);
     } catch (error) { setError(apiError(error)); }
     finally { setBusy(false); }
@@ -58,7 +58,7 @@ export default function RecoveryActions({ execution, onRecovered }: { execution:
         </select>
       </label>
       <label className="flex gap-2 items-start"><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} />
-        Run all steps again using real systems and the selected revision.</label>
+        {uncertain ? "I reviewed the uncertain external write and authorize a full replay, which may duplicate it." : "Run all steps again using real systems and the selected revision."}</label>
       <button disabled={busy || !confirmed} onClick={() => recover("replay")}
         className="px-3 py-1.5 rounded border border-[var(--color-border)] disabled:opacity-40">Start fresh replay</button>
     </div>

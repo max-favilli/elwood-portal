@@ -28,11 +28,12 @@ function Headers({ headers }: { headers?: Record<string, string[]> | null }) {
   </dl>;
 }
 
-function Body({ title, value }: { title: string; value?: string | null }) {
+function Body({ title, value, bytes, truncated }: { title: string; value?: string | null; bytes?: number | null; truncated?: boolean }) {
   let formatted = value ?? "No body.";
   if (value) { try { formatted = JSON.stringify(JSON.parse(value), null, 2); } catch { /* Keep non-JSON responses readable. */ } }
   return <details className="border border-[var(--color-border)] rounded p-2">
     <summary className="cursor-pointer text-xs">{title}</summary>
+    {truncated && <p className="text-xs py-1">{value == null ? "Body not captured" : "Preview truncated"}{bytes != null && ` (${bytes.toLocaleString()} bytes total)`}.</p>}
     <pre className="text-xs whitespace-pre-wrap break-all bg-[var(--color-bg-primary)] rounded p-2 mt-2">{formatted || "Empty body."}</pre>
   </details>;
 }
@@ -61,14 +62,14 @@ function ConnectorCalls({ calls, mock }: { calls?: ConnectorCall[]; mock: boolea
         {call.requestMetadata && <Details title="Request details" document={{ available: true, value: call.requestMetadata }} />}
         {(!call.connector || call.connector === "http") && <><h4 className="font-medium">Request headers</h4>
         <Headers headers={call.requestHeaders} /></>}
-        <Body title="Request body" value={call.requestBody} />
+        <Body title="Request body" value={call.requestBody} bytes={call.requestBodyBytes} truncated={call.requestBodyTruncated} />
         <h4 className="font-medium">Response{call.statusCode != null && `: ${call.statusCode} ${call.reasonPhrase ?? ""}`}
           {call.httpVersion && ` (HTTP/${call.httpVersion})`}</h4>
         {call.responseMetadata && <Details title="Response details" document={{ available: true, value: call.responseMetadata }} />}
-        {call.connector && call.connector !== "http" ? <Body title="Result / receipt" value={call.responseBody} /> : call.statusCode == null ? <p className="text-[var(--color-text-muted)]">No HTTP response received.</p> : <>
+        {call.connector && call.connector !== "http" ? <Body title="Result / receipt" value={call.responseBody} bytes={call.responseBodyBytes} truncated={call.responseBodyTruncated} /> : call.statusCode == null ? <p className="text-[var(--color-text-muted)]">No HTTP response received.</p> : <>
           <h4 className="font-medium">Response headers</h4>
           <Headers headers={call.responseHeaders} />
-          <Body title="Response body" value={call.responseBody} />
+          <Body title="Response body" value={call.responseBody} bytes={call.responseBodyBytes} truncated={call.responseBodyTruncated} />
         </>}
       </div>
     </details>)}</div>

@@ -96,12 +96,12 @@ test('portal API consumes execution failures and script warnings', async () => {
     await resumeExecution('execution-1');
     await resumeExecution('execution-1', true);
     await replayExecution('execution-1');
-    await replayExecution('execution-1', 'published-revision');
+    await replayExecution('execution-1', 'published-revision', true);
     assert.deepEqual(requests.slice(-4).map(({ path, method, body, authorization }) => ({ path, method, body, authorization })), [
       { path: '/api/executions/execution-1/resume', method: 'POST', body: { acknowledgeUncertain: false }, authorization: 'Bearer test-token' },
       { path: '/api/executions/execution-1/resume', method: 'POST', body: { acknowledgeUncertain: true }, authorization: 'Bearer test-token' },
-      { path: '/api/executions/execution-1/replay', method: 'POST', body: {}, authorization: 'Bearer test-token' },
-      { path: '/api/executions/execution-1/replay', method: 'POST', body: { revisionId: 'published-revision' }, authorization: 'Bearer test-token' },
+      { path: '/api/executions/execution-1/replay', method: 'POST', body: { acknowledgeUncertain: false }, authorization: 'Bearer test-token' },
+      { path: '/api/executions/execution-1/replay', method: 'POST', body: { revisionId: 'published-revision', acknowledgeUncertain: true }, authorization: 'Bearer test-token' },
     ]);
     const reader = { name: 'reader', permissions: ['read'], pipelines: ['example'] };
     assert.equal(canManage(reader, 'read', 'example'), true);
