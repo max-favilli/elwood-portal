@@ -14,7 +14,7 @@ export const monarchTokensProvider: languages.IMonarchLanguage = {
   ],
   pipeOperators: [
     'where', 'select', 'selectMany', 'orderBy', 'groupBy', 'distinct',
-    'take', 'skip', 'batch', 'join', 'concat', 'reduce', 'index',
+    'take', 'skip', 'batch', 'join', 'concat', 'reduce', 'index', 'indexBy',
     'count', 'sum', 'min', 'max', 'first', 'last', 'any', 'all',
   ],
   builtinMethods: [
@@ -28,7 +28,7 @@ export const monarchTokensProvider: languages.IMonarchLanguage = {
     'clone', 'keep', 'remove',
     'hash', 'rsaSign', 'newGuid',
     'now', 'utcNow', 'dateFormat', 'tryDateFormat', 'add', 'toUnixTimeSeconds',
-    'in', 'count', 'first', 'last', 'sum', 'min', 'max', 'index',
+    'in', 'count', 'first', 'last', 'sum', 'min', 'max', 'index', 'indexBy',
     'take', 'skip', 'concat', 'range', 'newGuid',
     'fromCsv', 'toCsv', 'fromXml', 'toXml', 'fromText', 'toText', 'parseJson',
     'fromXlsx', 'toXlsx', 'fromParquet', 'toParquet',

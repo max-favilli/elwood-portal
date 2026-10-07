@@ -9,7 +9,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SPEC_DIR = join(__dirname, '..', '..', 'Elwood', 'spec', 'test-cases');
+const SPEC_DIR = join(__dirname, '..', '..', 'elwood', 'spec', 'test-cases');
 const OUT_FILE = join(__dirname, '..', 'src', 'data', 'examples.json');
 
 if (!existsSync(SPEC_DIR)) {
@@ -28,14 +28,20 @@ const examples = [];
 for (const dir of dirs) {
   const base = join(SPEC_DIR, dir);
   const scriptPath = join(base, 'script.elwood');
-  const inputPath = join(base, 'input.json');
+  const inputName = ['input.json', 'input.csv', 'input.txt', 'input.xml']
+    .find(name => existsSync(join(base, name)));
   const expectedPath = join(base, 'expected.json');
   const explanationPath = join(base, 'explanation.md');
 
-  if (!existsSync(scriptPath)) continue;
+  if (!existsSync(scriptPath) || !existsSync(expectedPath) || !inputName) continue;
 
   const script = readFileSync(scriptPath, 'utf-8');
-  const input = existsSync(inputPath) ? readFileSync(inputPath, 'utf-8') : '{}';
+  const rawInput = readFileSync(join(base, inputName), 'utf-8');
+  // The input editor accepts JSON: wrap other formats as JSON string values.
+  const input = inputName === 'input.json' ? rawInput : JSON.stringify(rawInput);
+  const bindingsPath = join(base, 'bindings.json');
+  const bindings = existsSync(bindingsPath)
+    ? JSON.parse(readFileSync(bindingsPath, 'utf-8')) : {};
   const expected = existsSync(expectedPath) ? readFileSync(expectedPath, 'utf-8') : null;
   const explanation = existsSync(explanationPath) ? readFileSync(explanationPath, 'utf-8') : null;
 
@@ -62,6 +68,7 @@ for (const dir of dirs) {
     category,
     script: script.trim(),
     input: input.trim(),
+    bindings,
     expected: expected ? expected.trim() : null,
     explanation: explanation ? explanation.trim() : null,
   });

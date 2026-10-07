@@ -4,12 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:all": "node scripts/start-dev.mjs",
+    "examples:sync": "node scripts/bundle-examples.mjs",
+    "samples:sync": "node scripts/bundle-pipeline-samples.mjs",
+    "test": "node --experimental-strip-types --test scripts/*.test.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
-    "@elwood-lang/core": "^0.3.0",
+    "@elwood-lang/core": "0.7.25",
     "@monaco-editor/react": "^4.7.0",
     "@reduxjs/toolkit": "^2.11.2",
     "@tanstack/react-table": "^8.21.3",

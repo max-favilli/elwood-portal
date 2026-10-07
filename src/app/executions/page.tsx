@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listExecutions, type ExecutionState } from "@/lib/api";
+import ExecutionInspector from "@/components/ExecutionInspector";
+import RecoveryActions from "@/components/RecoveryActions";
+import { getExecution, listExecutions, type ExecutionState } from "@/lib/api";
 import { RefreshCw, CheckCircle2, XCircle, Clock, Loader2, Search, FlaskConical } from "lucide-react";
 
 const STATUS_LABELS: Record<number | string, { label: string; color: string; icon: typeof CheckCircle2 }> = {
@@ -9,10 +11,14 @@ const STATUS_LABELS: Record<number | string, { label: string; color: string; ico
   1: { label: "Running", color: "text-[var(--color-accent)]", icon: Loader2 },
   2: { label: "Completed", color: "text-[var(--color-success)]", icon: CheckCircle2 },
   3: { label: "Failed", color: "text-[var(--color-error)]", icon: XCircle },
+  4: { label: "Waiting to retry", color: "text-[var(--color-accent)]", icon: Clock },
+  5: { label: "Awaiting review", color: "text-[var(--color-error)]", icon: Clock },
   Pending: { label: "Pending", color: "text-[var(--color-text-muted)]", icon: Clock },
   Running: { label: "Running", color: "text-[var(--color-accent)]", icon: Loader2 },
   Completed: { label: "Completed", color: "text-[var(--color-success)]", icon: CheckCircle2 },
   Failed: { label: "Failed", color: "text-[var(--color-error)]", icon: XCircle },
+  Retrying: { label: "Waiting to retry", color: "text-[var(--color-accent)]", icon: Clock },
+  AwaitingReview: { label: "Awaiting review", color: "text-[var(--color-error)]", icon: Clock },
 };
 
 function getStatus(status: number | string) {
@@ -42,6 +48,20 @@ export default function ExecutionsPage() {
 
   useEffect(() => { loadExecutions(); }, []);
 
+  useEffect(() => {
+    if (!selectedId) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const data = await getExecution(selectedId);
+        if (active) setExecutions(current => current.some(e => e.executionId === data.executionId)
+          ? current.map(e => e.executionId === data.executionId ? data : e) : [data, ...current]);
+      } catch { /* Keep the last snapshot visible; explicit refresh displays API errors. */ }
+    };
+    const timer = setInterval(refresh, 2000);
+    return () => { active = false; clearInterval(timer); };
+  }, [selectedId]);
+
   async function loadExecutions() {
     setLoading(true);
     setError(null);
@@ -63,8 +83,8 @@ export default function ExecutionsPage() {
         !e.executionId.toLowerCase().includes(filter.toLowerCase()))
       return false;
     // Test/real filter
-    if (showTests === "real" && (e as any).isTest) return false;
-    if (showTests === "test" && !(e as any).isTest) return false;
+    if (showTests === "real" && e.isTest) return false;
+    if (showTests === "test" && !e.isTest) return false;
     return true;
   });
 
@@ -96,7 +116,7 @@ export default function ExecutionsPage() {
                   ? "bg-[var(--color-accent)] text-white"
                   : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
                 }`}>
-                {v === "all" ? "All" : v === "real" ? "Real" : "Tests"}
+                {v === "all" ? "All" : v === "real" ? "Deployed" : "Tests"}
               </button>
             ))}
           </div>
@@ -128,10 +148,10 @@ export default function ExecutionsPage() {
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-medium">{exec.pipelineName}</span>
-                    {(exec as any).isTest && (
+                    {exec.isTest && (
                       <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
                         <FlaskConical size={9} />
-                        test
+                        {exec.testMode === "mock" ? "mock test" : exec.testMode === "real" ? "real-system test" : "test"}
                       </span>
                     )}
                   </div>
@@ -163,7 +183,8 @@ export default function ExecutionsPage() {
           <div>
             <div className="flex items-center gap-3 mb-6">
               <h2 className="text-lg font-semibold">{selected.pipelineName}</h2>
-              {(selected as any).isTest && (
+              <p className="text-xs text-[var(--color-text-muted)]" title={selected.revisionId}>Revision: {selected.revisionId?.slice(0, 12) ?? "legacy (unrecorded)"} {selected.isTest ? " / draft test" : " / deployed run"}</p>
+              {selected.isTest && (
                 <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
                   <FlaskConical size={10} /> Test execution
                 </span>
@@ -193,7 +214,15 @@ export default function ExecutionsPage() {
                 <div className="text-[var(--color-text-muted)] mb-1">Completed</div>
                 <div>{selected.completedAt ? formatTime(selected.completedAt) : "—"}</div>
               </div>
+              {selected.expiresAt && <div><div className="text-[var(--color-text-muted)] mb-1">Retained until</div><div>{formatTime(selected.expiresAt)}</div></div>}
+              {selected.replayOf && <div><div className="text-[var(--color-text-muted)] mb-1">Replay of</div>
+                <button className="underline font-mono break-all" onClick={async () => {
+                  try { const original = await getExecution(selected.replayOf!); setExecutions(current => [original, ...current.filter(e => e.executionId !== original.executionId)]); setSelectedId(original.executionId); }
+                  catch { setError("The original execution is unavailable or has expired."); }
+                }}>{selected.replayOf}</button></div>}
             </div>
+
+            <RecoveryActions key={`recovery-${selected.executionId}`} execution={selected} onRecovered={async id => { await loadExecutions(); setSelectedId(id); }} />
 
             {/* Errors */}
             {selected.errors && selected.errors.length > 0 && (
@@ -207,43 +236,9 @@ export default function ExecutionsPage() {
               </div>
             )}
 
-            {/* Sources */}
-            {selected.sources && Object.keys(selected.sources).length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Sources</h3>
-                <div className="space-y-2">
-                  {Object.entries(selected.sources).map(([name, src]) => {
-                    const s = getStatus(src.status);
-                    const Icon = s.icon;
-                    return (
-                      <div key={name} className="flex items-center justify-between bg-[var(--color-bg-secondary)] rounded px-3 py-2">
-                        <span className="text-xs font-medium">{name}</span>
-                        <span className={`flex items-center gap-1 text-[10px] ${s.color}`}><Icon size={11} />{s.label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            <ExecutionInspector key={`inspection-${selected.executionId}`} executionId={selected.executionId} refreshKey={JSON.stringify(selected)} />
 
-            {/* Outputs */}
-            {selected.outputs && Object.keys(selected.outputs).length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-xs font-semibold text-[var(--color-text-secondary)] mb-2">Outputs</h3>
-                <div className="space-y-2">
-                  {Object.entries(selected.outputs).map(([name, out]) => {
-                    const s = getStatus(out.status);
-                    const Icon = s.icon;
-                    return (
-                      <div key={name} className="flex items-center justify-between bg-[var(--color-bg-secondary)] rounded px-3 py-2">
-                        <span className="text-xs font-medium">{name}</span>
-                        <span className={`flex items-center gap-1 text-[10px] ${s.color}`}><Icon size={11} />{s.label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+
           </div>
         )}
       </div>

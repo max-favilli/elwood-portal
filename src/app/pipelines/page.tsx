@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, Search, FileCode2 } from "lucide-react";
-import { listPipelines, type PipelineSummary } from "@/lib/api";
+import { useManagementSession } from "@/components/ManagementAccess";
+import { listPipelines, canManage, apiError, type PipelineSummary } from "@/lib/api";
 
 export default function PipelineListPage() {
+  const session = useManagementSession();
   const [pipelines, setPipelines] = useState<PipelineSummary[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -22,10 +24,7 @@ export default function PipelineListPage() {
       const data = await listPipelines(search || undefined);
       setPipelines(data);
     } catch (err) {
-      setError(
-        "Failed to load pipelines. Is the Elwood Runtime API running? " +
-        "(cd Elwood/dotnet/src/Elwood.Runtime.Api && dotnet run)"
-      );
+      setError(apiError(err));
     } finally {
       setLoading(false);
     }
@@ -40,13 +39,13 @@ export default function PipelineListPage() {
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Pipelines</h1>
-        <Link
+        {canManage(session, "write") && <Link
           href="/pipelines/new"
           className="flex items-center gap-2 px-4 py-2 text-sm bg-[var(--color-accent)] text-white rounded hover:opacity-90 transition-opacity"
         >
           <Plus size={16} />
           New Pipeline
-        </Link>
+        </Link>}
       </div>
 
       {/* Search */}
@@ -96,6 +95,7 @@ export default function PipelineListPage() {
                 <th className="px-4 py-3 font-medium">Description</th>
                 <th className="px-4 py-3 font-medium text-center">Sources</th>
                 <th className="px-4 py-3 font-medium text-center">Outputs</th>
+                <th className="px-4 py-3 font-medium">Deployment</th>
                 <th className="px-4 py-3 font-medium">Last Modified</th>
               </tr>
             </thead>
@@ -118,6 +118,7 @@ export default function PipelineListPage() {
                   </td>
                   <td className="px-4 py-3 text-center">{p.sourceCount}</td>
                   <td className="px-4 py-3 text-center">{p.outputCount}</td>
+                  <td className="px-4 py-3 text-xs">{p.migrationRequired ? "Legacy / migrate" : !p.activeRevisionId ? "Draft only" : p.activeRevisionId === p.draftRevisionId ? "Deployed" : "Draft changes"}</td>
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">
                     {new Date(p.lastModified).toLocaleDateString()}
                   </td>

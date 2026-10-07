@@ -1,0 +1,289 @@
+[
+  {
+    "id": "sample-cart-chain",
+    "title": "Cart creation and delivery",
+    "description": "Create a simulated cart in DummyJSON, merge its ID with the original order and deliver it.",
+    "expectedOutcome": "Succeeds. Delivery includes the original orderId and the returned cartId. The public service may return a different ID from the fixture.",
+    "realNotes": "Real systems calls DummyJSON, then Postman Echo. To inspect delivery in a browser, replace the output destination URL with your own Webhook.site URL.",
+    "content": {
+      "yaml": "version: 2\nname: sample-cart-chain\n# sample: sample-cart-chain\ndescription: Create a simulated cart and deliver the combined order\nmode: async\nsources:\n  - name: order\n    trigger: http\n    endpoint: /samples/sample-cart-chain\n    map: '{ order: $ }'\n  - name: cart\n    trigger: pull\n    depends: order\n    from:\n      http:\n        url: https://dummyjson.com/carts/add\n        method: POST\n        body: '{ userId: $idm.order.userId, products: $idm.order.items | select item => { id: item.productId, quantity: item.quantity } }'\n    map: '{ cart: $ }'\noutputs:\n  - name: delivery\n    map: '{ orderId: $idm.order.id, cartId: $idm.cart.id, cartTotal: $idm.cart.total }'\n    destinations:\n      http:\n        # Optional: replace this URL with your receiving URL from Webhook.site.\n        - url: https://postman-echo.com/post\n          method: POST\n",
+      "scripts": {}
+    },
+    "input": {
+      "id": "DEMO-42",
+      "userId": 1,
+      "items": [
+        {
+          "productId": 1,
+          "quantity": 2
+        }
+      ]
+    },
+    "mocks": {
+      "sources": {
+        "cart": {
+          "statusCode": 201,
+          "body": {
+            "id": 51,
+            "userId": 1,
+            "total": 19.98
+          },
+          "expectBody": {
+            "userId": 1,
+            "products": [
+              {
+                "id": 1,
+                "quantity": 2
+              }
+            ]
+          }
+        }
+      },
+      "outputs": {
+        "delivery": [
+          {
+            "statusCode": 200,
+            "expectBody": {
+              "orderId": "DEMO-42",
+              "cartId": 51,
+              "cartTotal": 19.98
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "sample-deldo-stock",
+    "title": "Deldo stock import",
+    "description": "Blob CSV → normalized offers → SQL procedure and versioned Blob snapshot.",
+    "expectedOutcome": "Completes with the supplied mocks; inspect each connector call and receipt.",
+    "realNotes": "Configure inbound.connectionString and catalog.connectionString secret grants, create containers and catalog.usp_ImportOffers, and upload the matching sample blob. The synthetic Event Grid input needs the actual blob ETag for real tests.",
+    "content": {
+      "yaml": "# sample: sample-deldo-stock\nversion: 2\nname: sample-deldo-stock\ndescription: >\n  A Deldo stock/price file landed in inbound/deldo. Read exactly the blob version the\n  event describes, normalise the rows to the shared offer contract, load them into the\n  catalog database and keep one snapshot per file version for analysis.\nmode: async\nttlSeconds: 2592000   # 30 days of execution history / recovery window\n\nsources:\n  # Event Grid BlobCreated notification, ONE event per execution (the ingress adapter\n  # splits batches, docs/elwood-requests.md §4). event.elwood re-validates type, path and ETag.\n  - name: event\n    trigger: http\n    endpoint: /samples/sample-deldo-stock\n    eventGrid: { subjectPrefix: /blobServices/default/containers/inbound/blobs/deldo/ }\n    contentType: json\n    map: event.elwood                 # → { event: { supplier, blobPath, fileName, etag, ... } }\n\n  # The file itself, pinned to the version the event announced: if the supplier has\n  # already replaced it, the read must fail visibly rather than load new bytes under\n  # the old ETag (docs/elwood-requests.md §1). The CSV is pulled as text and parsed\n  # explicitly: Deldo is Belgian, expect ';' and decimal comma.\n  - name: file\n    trigger: pull\n    depends: event\n    contentType: text\n    from:\n      blobStorage:\n        connectionString: $secrets.inbound.connectionString\n        container: inbound\n        path: '{$idm.event.blobPath}'\n        maxBytes: 26214400\n        ifMatch: '{$idm.event.etag}'  # reject a replaced blob\n    retry:                            # reads are side-effect free: retry freely\n      mode: automatic\n      maxAttempts: 5\n      delayMs: 2000\n      backoffMultiplier: 2\n      maxDelayMs: 60000\n      transportErrors: true\n    map: normalize.elwood             # → { import: {...}, offers: [...] }\n\noutputs:\n  # One call per file version. The procedure is idempotent on (blob_path, etag) and\n  # returns { import_id, status, offers_loaded }. A timeout after the command was sent\n  # may still have committed: no automatic retry, an operator resumes after checking\n  # catalog.imports (resume reuses this result if it had succeeded).\n  - name: offers-to-sql\n    map: '{ import: $.import, offers: $.offers }'\n    contentType: json\n    retry:\n      mode: manual\n      allowUncertainWrites: false\n    destinations:\n      sql:\n        - connectionString: $secrets.catalog.connectionString\n          storedProcedure: catalog.usp_ImportOffers\n          parameter: payload\n\n  # One snapshot per file version; the ETag makes the name unique when the same file name\n  # is replaced several times a day, and a redelivery rewrites identical content (no-op).\n  # Pipeline Parquet delivery remains unsupported; use JSON for this snapshot.\n  - name: snapshot\n    map: '{ import: $.import, offers: $.offers }'\n    contentType: json\n    retry:\n      mode: automatic\n      maxAttempts: 5\n      delayMs: 2000\n      allowUncertainWrites: true      # same bytes to the same name: duplicates are harmless\n    destinations:\n      blobStorage:\n        - connectionString: $secrets.inbound.connectionString\n          container: analytics\n          overwrite: true\n          filename: deldo/truck/{$idm.import.receivedDate}/{$idm.import.fileName}.{$idm.import.etag}.json\n",
+      "scripts": {
+        "event.elwood": "// Event Grid BlobCreated notification → { event: {...} }.\n//\n// Event Grid may batch events and does not guarantee order; the ingress adapter is\n// expected to hand this pipeline exactly ONE event per execution (docs/elwood-requests.md\n// §4). Anything else is rejected here, never silently reduced to $[0].\n// The Event Grid subscription is filtered on the deldo/ subject prefix and BlobCreated,\n// but filters are configuration, so the script re-checks what it depends on.\n\nlet supplier = \"deldo\"\nlet blobsPrefix = \"/blobServices/default/containers/inbound/blobs/\"\nlet commitApis = [\"PutBlob\", \"PutBlockList\", \"FlushWithClose\", \"CopyBlob\"]\n\nlet events = $ | where e => true            // normalise: $ is the delivered array\nlet n = events | count\nlet ev = if n == 1 then events.first() else {}\n\nlet problems = [\n  if n != 1 then \"expected exactly one event per execution, got \" + n.toString() else null,\n  if n == 1 && ev?.eventType != \"Microsoft.Storage.BlobCreated\" then \"eventType is not BlobCreated\" else null,\n  if n == 1 && !ev?.subject.isNullOrEmpty() && !ev.subject.startsWith(blobsPrefix + supplier + \"/\") then \"subject is outside inbound/\" + supplier + \"/\" else null,\n  if n == 1 && ev?.subject.isNullOrEmpty() then \"subject missing\" else null,\n  if n == 1 && !ev?.data?.api.in(commitApis) then \"data.api is not a blob commit\" else null,\n  if n == 1 && ev?.data?.eTag.isNullOrEmpty() then \"data.eTag missing: cannot identify the file version\" else null\n] | where p => !p.isNull()\n\n// Abort the step when invalid. Elwood has no fail(message) yet (docs/elwood-requests.md §8)\n// and strict access does not throw on literals or on $[0].x, so the only dependable abort\n// is \"Division by zero\". `let` is lazy: the guard must be referenced in the result.\nlet guard = 1 / (if problems.isEmpty() then 1 else 0)\n\nlet blobPath = ev.subject.replace(blobsPrefix, \"\")\nlet parts = blobPath.split(\"/\")\n\nreturn {\n  event: {\n    valid: guard == 1,\n    id: ev.id,\n    type: ev.eventType,\n    time: ev.eventTime,\n    supplier: parts.first(),\n    blobPath: blobPath,\n    fileName: parts.last(),\n    url: ev.data.url,\n    etag: ev.data.eTag,\n    contentLength: ev.data.contentLength,\n    api: ev.data.api\n  }\n}\n",
+        "normalize.elwood": "// Deldo truck-delivery stock file → shared offer contract (pipelines/contracts/normalized-offer.schema.json).\n//\n// $     = the CSV text pulled from Blob (source \"file\", contentType text)\n// $idm  = { event: {...} } from the trigger stage\n//\n// COLUMN MAPPING: the headers below are PLACEHOLDERS until Deldo's real test CSV is in\n// deldo/. Only this block and the season codes should need to change.\n//   EAN ARTICLE BRAND PROFILE WIDTH HEIGHT RIM LOADINDEX SPEEDINDEX SEASON RUNFLAT QTY PRICE\n//\n// VALIDATION POLICY (row level; the import as a whole never fails on bad rows):\n//   rejected: EAN not 8–14 digits · QTY not a non-negative integer · PRICE not a positive\n//             decimal (',' or '.') · size fields present but not numeric\n//   kept with null: unknown season code, missing optional descriptors\n// Why so strict: Elwood's toNumber() returns 0 for garbage and drops thousands/decimal\n// separators (\"12,5\" → 125), so every number is pattern-checked BEFORE conversion.\n\nlet rows = $.fromCsv({ delimiter: \";\", headers: true })\nlet seasons = { S: \"summer\", W: \"winter\", AS: \"all-season\", \"4S\": \"all-season\" }\nlet yes = [\"Y\", \"YES\", \"J\", \"1\", \"TRUE\", \"RF\"]\n\nlet checked = rows | select r => {\n  row: r,\n  problems: [\n    if r.EAN?.trim().regex(\"^[0-9]{8,14}$\").isEmpty() then \"EAN must be 8-14 digits\" else null,\n    if r.QTY?.trim().regex(\"^[0-9]+$\").isEmpty() then \"QTY must be a non-negative integer\" else null,\n    if r.PRICE?.trim().regex(\"^[0-9]+([.,][0-9]{1,4})?$\").isEmpty() then \"PRICE must be a positive decimal\" else null,\n    if !r.PRICE?.trim().regex(\"^[0-9]+([.,][0-9]{1,4})?$\").isEmpty() && r.PRICE.trim().replace(\",\", \".\").toNumber() <= 0 then \"PRICE must be > 0\" else null,\n    if !r.WIDTH.isNullOrWhiteSpace() && r.WIDTH.trim().regex(\"^[0-9]{2,3}$\").isEmpty() then \"WIDTH not numeric\" else null,\n    if !r.HEIGHT.isNullOrWhiteSpace() && r.HEIGHT.trim().regex(\"^[0-9]{2,3}$\").isEmpty() then \"HEIGHT not numeric\" else null,\n    if !r.RIM.isNullOrWhiteSpace() && r.RIM.trim().regex(\"^[0-9]{1,2}([.,]5)?$\").isEmpty() then \"RIM not numeric\" else null\n  ] | where p => !p.isNull()\n}\n\nlet rejected = checked\n  | where c => !c.problems.isEmpty()\n  | select c => { reason: c.problems.concat(\"; \"), row: c.row }\n\nlet offers = checked\n  | where c => c.problems.isEmpty()\n  | select c => c.row\n  | select r => {\n      ean: r.EAN.trim(),\n      supplierCode: r.ARTICLE?.trim(),\n      brand: r.BRAND?.trim().toUpper(),\n      pattern: r.PROFILE?.trim(),\n      width: if r.WIDTH.isNullOrWhiteSpace() then null else r.WIDTH.trim().toNumber(),\n      aspect: if r.HEIGHT.isNullOrWhiteSpace() then null else r.HEIGHT.trim().toNumber(),\n      rim: if r.RIM.isNullOrWhiteSpace() then null else r.RIM.trim().replace(\",\", \".\").toNumber(),\n      loadIndex: r.LOADINDEX?.trim(),\n      speedIndex: r.SPEEDINDEX?.trim().toUpper(),\n      season: seasons[r.SEASON?.trim().toUpper()],\n      runflat: r.RUNFLAT?.trim().toUpper().in(yes),\n      quantity: r.QTY.trim().toNumber(),\n      price: r.PRICE.trim().replace(\",\", \".\").toNumber(),\n      currency: \"EUR\",\n      deliveryMode: \"truck\"\n    }\n\nlet ev = $idm.event\nreturn {\n  import: {\n    supplier: \"deldo\",\n    feed: \"truck\",\n    fileName: ev.fileName,\n    blobPath: ev.blobPath,\n    etag: ev.etag,\n    receivedAt: ev.time,\n    receivedDate: ev.time.left(10),\n    rowsIn: rows | count,\n    rowsOk: offers | count,\n    rowsRejected: rejected | count,\n    rejected: rejected\n  },\n  offers: offers\n}\n"
+      }
+    },
+    "input": [
+      {
+        "topic": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-gomme/providers/Microsoft.Storage/storageAccounts/stgommeexample",
+        "subject": "/blobServices/default/containers/inbound/blobs/deldo/deldo_stock.csv",
+        "eventType": "Microsoft.Storage.BlobCreated",
+        "id": "5c5e1a7e-0d7a-4a4b-9c1a-3f2d8a4e1b22",
+        "data": {
+          "api": "PutBlockList",
+          "clientRequestId": "6d79dbfb-0e37-4fc4-981f-442c9ca65760",
+          "requestId": "831e1650-001e-001b-66ab-eeb76e000000",
+          "eTag": "0x8D4BCC2E4835CD0",
+          "contentType": "text/csv",
+          "contentLength": 524,
+          "blobType": "BlockBlob",
+          "url": "https://stgommeexample.blob.core.windows.net/inbound/deldo/deldo_stock.csv",
+          "sequencer": "00000000000004420000000000028963",
+          "storageDiagnostics": {
+            "batchId": "b68529f3-68cd-4744-baa4-3c0498ec19f0"
+          }
+        },
+        "dataVersion": "",
+        "metadataVersion": "1",
+        "eventTime": "2026-10-06T07:15:42.3187894Z"
+      }
+    ],
+    "mocks": {
+      "sources": {
+        "file": {
+          "body": "EAN;ARTICLE;BRAND;PROFILE;WIDTH;HEIGHT;RIM;LOADINDEX;SPEEDINDEX;SEASON;RUNFLAT;QTY;PRICE\n4019238000001;MI205551691V;Michelin;Primacy 4;205;55;16;91;V;S;N;120;78,50\n4019238000002;CO225451794W;Continental;WinterContact TS 870;225;45;17;94;W;W;N;36;112,90\n4019238000003;BR195651591H;Bridgestone;Turanza T005;195;65;15;91;H;S;N;0;61,20\n4019238000004;PI245401897Y;Pirelli;P Zero;245;40;18;97;Y;S;RF;8;189.00\n4019238000006;HA175651484T;Hankook;Kinergy 4S2;175;65;14;84;T;ZZ;N;14;49,90\n;XX000000000000;Unknown;No EAN;205;55;16;91;V;S;N;5;10,00\n4019238000005;GY185601584T;Goodyear;Vector 4Seasons Gen-3;185;60;15;84;T;4S;N;52;\n12345;BAD-EAN;Nokian;Short EAN;205;55;16;91;V;S;N;3;70,00\n4019238000007;VR205551691V;Vredestein;Garbage price;205;55;16;91;V;S;N;3;n/a\n4019238000008;FA205551691V;Falken;Fractional qty;205;55;16;91;V;S;N;2,5;55,00\n4019238000009;KU205551691V;Kumho;Zero price;205;55;16;91;V;S;N;9;0\n",
+          "contentType": "text/plain",
+          "metadata": {
+            "blob": {
+              "etag": "0x8D4BCC2E4835CD0"
+            }
+          }
+        }
+      },
+      "outputs": {
+        "offers-to-sql": [
+          {
+            "body": [
+              {
+                "import_id": 1,
+                "status": "loaded",
+                "offers_loaded": 5
+              }
+            ]
+          }
+        ],
+        "snapshot": [
+          {
+            "body": {
+              "etag": "snapshot-version-1",
+              "size": 1234
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "sample-echo-order",
+    "title": "Order echo",
+    "description": "Transform a synthetic order, POST it to Postman Echo and return the echoed JSON.",
+    "expectedOutcome": "Succeeds. Response contains orderId DEMO-42 and customer Ada Example.",
+    "realNotes": "Real systems sends synthetic order data to Postman Echo. No credentials are required.",
+    "content": {
+      "yaml": "version: 2\nname: sample-echo-order\n# sample: sample-echo-order\ndescription: Transform an order and inspect the HTTP echo\nmode: sync\nsources:\n  - name: order\n    trigger: http\n    endpoint: /samples/sample-echo-order\n    map: '{ order: $ }'\n  - name: echo\n    trigger: pull\n    depends: order\n    from:\n      http:\n        url: https://postman-echo.com/post\n        method: POST\n        body: '{ orderId: $idm.order.id, customer: $idm.order.customer.name, total: $idm.order.total }'\n    map: '{ echoed: $.json, httpStatus: $source.http.statusCode }'\noutputs:\n  - name: response\n    response: true\n    map: '{ received: $idm.echoed, httpStatus: $idm.httpStatus }'\n",
+      "scripts": {}
+    },
+    "input": {
+      "id": "DEMO-42",
+      "customer": {
+        "name": "Ada Example"
+      },
+      "total": 39.98
+    },
+    "mocks": {
+      "sources": {
+        "echo": {
+          "statusCode": 200,
+          "body": {
+            "json": {
+              "orderId": "DEMO-42",
+              "customer": "Ada Example",
+              "total": 39.98
+            }
+          },
+          "expectBody": {
+            "orderId": "DEMO-42",
+            "customer": "Ada Example",
+            "total": 39.98
+          }
+        }
+      },
+      "outputs": {}
+    }
+  },
+  {
+    "id": "sample-http-error",
+    "title": "HTTP 503 failure",
+    "description": "Observe a failed HTTP source and an output that remains pending.",
+    "expectedOutcome": "Fails intentionally at source remote with HTTP 503. The response output stays pending.",
+    "realNotes": "Real systems calls httpbin /status/503. This checks failure reporting; retries belong to M4.",
+    "content": {
+      "yaml": "version: 2\nname: sample-http-error\n# sample: sample-http-error\ndescription: An intentional HTTP 503 source failure\nmode: sync\nsources:\n  - name: input\n    trigger: http\n    endpoint: /samples/sample-http-error\n  - name: remote\n    trigger: pull\n    depends: input\n    from:\n      http:\n        url: https://httpbin.org/status/503\n        method: GET\noutputs:\n  - name: response\n    response: true\n    map: '{ message: \"This output must not run after the source fails\" }'\n",
+      "scripts": {}
+    },
+    "input": {},
+    "mocks": {
+      "sources": {
+        "remote": {
+          "statusCode": 503,
+          "contentType": "text/plain",
+          "body": "Service Unavailable"
+        }
+      },
+      "outputs": {}
+    }
+  },
+  {
+    "id": "sample-http-timeout",
+    "title": "HTTP timeout",
+    "description": "Observe a one-second request deadline against a delayed HTTP response.",
+    "expectedOutcome": "Fails intentionally at source remote. Mock mode simulates the transport failure immediately; real mode exercises the deadline.",
+    "realNotes": "Real systems calls httpbin /delay/5 with connectionTimeout 1000 ms. Public availability and network errors can affect the observed diagnostic.",
+    "content": {
+      "yaml": "version: 2\nname: sample-http-timeout\n# sample: sample-http-timeout\ndescription: An intentional HTTP timeout\nmode: sync\nsources:\n  - name: input\n    trigger: http\n    endpoint: /samples/sample-http-timeout\n  - name: remote\n    trigger: pull\n    depends: input\n    from:\n      http:\n        url: https://httpbin.org/delay/5\n        method: GET\n        connectionTimeout: 1000\noutputs:\n  - name: response\n    response: true\n    map: '{ message: \"This output must not run after a timeout\" }'\n",
+      "scripts": {}
+    },
+    "input": {},
+    "mocks": {
+      "sources": {
+        "remote": {
+          "error": "Simulated HTTP timeout after 1000 ms"
+        }
+      },
+      "outputs": {}
+    }
+  },
+  {
+    "id": "sample-order-auth",
+    "title": "Authenticated order chain",
+    "description": "OAuth2 CRM call followed by a Basic-authenticated HTTP delivery using its result.",
+    "expectedOutcome": "Completes with the supplied mocks; inspect each connector call and receipt.",
+    "realNotes": "Real mode writes to your configured endpoints. Configure and grant crm.* and emarsys.* credentials; use controlled test services.",
+    "content": {
+      "yaml": "# sample: sample-order-auth\nversion: 2\nname: sample-order-auth\nmode: sync\nsources:\n  - name: order\n    trigger: http\n    endpoint: /samples/sample-order-auth\n    map: '{ order: $ }'\n  - name: crm\n    trigger: pull\n    depends: order\n    from:\n      http:\n        url: $secrets.crm.url\n        method: POST\n        body: '{ orderId: $idm.order.id }'\n        oauth2:\n          tokenUrl: $secrets.crm.tokenUrl\n          clientId: $secrets.crm.clientId\n          clientSecret: $secrets.crm.clientSecret\n    map: '{ crm: $ }'\noutputs:\n  - name: emarsys\n    response: true\n    map: '{ orderId: $.order.id, crmId: $.crm.id }'\n    destinations:\n      http:\n        - url: $secrets.emarsys.url\n          user: $secrets.emarsys.user\n          password: $secrets.emarsys.password\n",
+      "scripts": {}
+    },
+    "input": {
+      "id": "ORDER-42"
+    },
+    "mocks": {
+      "sources": {
+        "crm": {
+          "body": {
+            "id": "CRM-42"
+          },
+          "expectBody": {
+            "orderId": "ORDER-42"
+          }
+        }
+      },
+      "outputs": {
+        "emarsys": [
+          {
+            "body": {
+              "accepted": true
+            },
+            "expectBody": {
+              "orderId": "ORDER-42",
+              "crmId": "CRM-42"
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "sample-product-sql",
+    "title": "Product message → SQL → SAP",
+    "description": "Enrich a RabbitMQ product event using a SQL procedure, then deliver over HTTP with Basic authentication.",
+    "expectedOutcome": "Completes with the supplied mocks; inspect each connector call and receipt.",
+    "realNotes": "Local tests use the supplied trigger input. Real mode calls dbo.GetProduct and SAP; only deployment starts the RabbitMQ subscription. Grant products.sql, products.rabbitmq and sap.* as appropriate.",
+    "content": {
+      "yaml": "# sample: sample-product-sql\nversion: 2\nname: sample-product-sql\nmode: async\nsources:\n  - name: event\n    trigger: queue\n    rabbitmq:\n      connectionString: $secrets.products.rabbitmq\n      queue: product-changes\n      requireMessageId: true\n    map: '{ event: $ }'\n  - name: product\n    trigger: pull\n    depends: event\n    from:\n      sql:\n        connectionString: $secrets.products.sql\n        storedProcedure: dbo.GetProduct\n        readOnly: true\n        parameters:\n          id: { type: int, value: '$idm.event.productId' }\n    map: '{ product: $[0], event: $idm.event }'\noutputs:\n  - name: sap\n    map: '{ productId: $.event.productId, sku: $.product.sku, quantity: $.product.quantity }'\n    retry: { mode: manual }\n    destinations:\n      http:\n        - url: $secrets.sap.url\n          user: $secrets.sap.user\n          password: $secrets.sap.password\n          connectionTimeout: 30000\n",
+      "scripts": {}
+    },
+    "input": {
+      "productId": 42
+    },
+    "mocks": {
+      "sources": {
+        "product": {
+          "body": [
+            {
+              "id": 42,
+              "sku": "DEMO-42",
+              "quantity": 10
+            }
+          ]
+        }
+      },
+      "outputs": {
+        "sap": [
+          {
+            "body": {
+              "accepted": true
+            },
+            "expectBody": {
+              "productId": 42,
+              "sku": "DEMO-42",
+              "quantity": 10
+            }
+          }
+        ]
+      }
+    }
+  }
+]

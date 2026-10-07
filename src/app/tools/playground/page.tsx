@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { Play, Trash2, Clock, AlertTriangle, BookOpen, Search, ChevronRight } from "lucide-react";
+import Warnings from "@/components/Warnings";
+import { isScript, evaluationWarnings, formatDiagnostic } from "@/lib/results";
 import allExamples from "@/data/examples.json";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
@@ -30,8 +32,8 @@ const DEFAULT_SCRIPT = `// Try Elwood expressions here.
 // Press Ctrl+Enter or click Run to evaluate.
 
 $.items[*]
-  | where .active
-  | select { name: .name, upper: .name.toUpper() }
+  | where item => item.active
+  | select item => { name: item.name, upper: item.name.toUpper() }
 `;
 
 const DEFAULT_INPUT = `{
@@ -45,8 +47,10 @@ const DEFAULT_INPUT = `{
 export default function PlaygroundPage() {
   const [script, setScript] = useState(DEFAULT_SCRIPT);
   const [input, setInput] = useState(DEFAULT_INPUT);
+  const [bindings, setBindings] = useState<Record<string, unknown>>({});
   const [output, setOutput] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
   const [showExamples, setShowExamples] = useState(true);
@@ -74,8 +78,10 @@ export default function PlaygroundPage() {
   function loadExample(ex: Example) {
     setScript(ex.script);
     setInput(ex.input);
+    setBindings(ex.bindings);
     setOutput("");
     setError(null);
+    setWarnings([]);
     setDurationMs(null);
     setSelectedExample(ex.id);
   }
@@ -83,6 +89,7 @@ export default function PlaygroundPage() {
   const handleRun = useCallback(async () => {
     setRunning(true);
     setError(null);
+    setWarnings([]);
     setOutput("");
     setDurationMs(null);
 
@@ -94,39 +101,39 @@ export default function PlaygroundPage() {
       let inputData: unknown;
       try {
         inputData = JSON.parse(input);
-      } catch (parseErr: any) {
-        setError(`Invalid input JSON: ${parseErr.message}`);
+      } catch (parseErr) {
+        setError(`Invalid input JSON: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
         setRunning(false);
         return;
       }
 
       const scriptText = script.trim();
-      const isScript = scriptText.startsWith("let ") ||
-                       scriptText.includes("\nlet ") ||
-                       scriptText.includes("return ");
-
       const start = performance.now();
-      const result = isScript
-        ? execute(scriptText, inputData)
-        : evaluate(scriptText, inputData);
+      const result = isScript(scriptText)
+        ? execute(scriptText, inputData, bindings)
+        : evaluate(scriptText, inputData, bindings);
       const elapsed = performance.now() - start;
 
       setDurationMs(Math.round(elapsed * 100) / 100);
 
+      setWarnings(evaluationWarnings(result.diagnostics));
       if (result.success) {
         setOutput(JSON.stringify(result.value, null, 2));
       } else {
         const diagnostics = result.diagnostics || [];
-        setError(diagnostics.map((d: any) =>
-          d.line != null ? `Line ${d.line}:${d.column} — ${d.message}` : d.message
-        ).join("\n"));
+        setError(diagnostics.filter(d => d.severity === "error").map(formatDiagnostic).join("\n"));
       }
-    } catch (err: any) {
-      setError(err?.message || "Unexpected error");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
     } finally {
       setRunning(false);
     }
-  }, [script, input]);
+  }, [script, input, bindings]);
+
+  // Monaco registers the action once; keep its callback on the current script
+  // and example bindings rather than the values from the first render.
+  const runRef = useRef(handleRun);
+  useEffect(() => { runRef.current = handleRun; }, [handleRun]);
 
   function handleMonacoMount(monaco: typeof import("monaco-editor")) {
     monacoRef.current = monaco;
@@ -140,13 +147,14 @@ export default function PlaygroundPage() {
       id: "elwood-run",
       label: "Run Elwood Expression",
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-      run: () => handleRun(),
+      run: () => runRef.current(),
     });
   }
 
   function handleClear() {
     setOutput("");
     setError(null);
+    setWarnings([]);
     setDurationMs(null);
   }
 
@@ -306,6 +314,7 @@ export default function PlaygroundPage() {
                 "Output"
               )}
             </div>
+            <Warnings warnings={warnings} />
             <div className="flex-1 min-h-0">
               <MonacoEditor
                 language="json"

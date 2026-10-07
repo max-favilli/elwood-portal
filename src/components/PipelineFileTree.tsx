@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 
 interface FileTreeProps {
+  readOnly?: boolean;
   yaml: string;
   scripts: Record<string, string>;
   activeFile: string;
@@ -23,6 +24,7 @@ interface FileGroup {
 }
 
 export default function PipelineFileTree({
+  readOnly = false,
   yaml,
   scripts,
   activeFile,
@@ -92,7 +94,7 @@ export default function PipelineFileTree({
 
   function handleAdd() {
     const name = newName.trim();
-    if (!name) return;
+    if (!name || readOnly) return;
     const fileName = name.endsWith(".elwood") ? name : `${name}.elwood`;
     onAddScript(fileName);
     onSelectFile(fileName);
@@ -181,7 +183,7 @@ export default function PipelineFileTree({
                     <FileCode2 size={12} className="flex-shrink-0 text-[var(--color-success)]" />
                     <span className="truncate">{file.name}</span>
                   </button>
-                  <button
+                  <button disabled={readOnly}
                     onClick={(e) => {
                       e.stopPropagation();
                       onRemoveScript(file.name);
@@ -210,11 +212,11 @@ export default function PipelineFileTree({
               className="flex-1 bg-[var(--color-bg-primary)] text-xs px-2 py-1 rounded border border-[var(--color-border)] outline-none w-24"
               autoFocus
             />
-            <button onClick={handleAdd} className="text-[var(--color-success)] text-xs">OK</button>
+            <button disabled={readOnly} onClick={handleAdd} className="text-[var(--color-success)] text-xs">OK</button>
             <button onClick={() => setShowAdd(false)} className="text-[var(--color-text-muted)] text-xs">✕</button>
           </div>
         ) : (
-          <button
+          <button disabled={readOnly}
             onClick={() => setShowAdd(true)}
             className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-accent)] w-full px-1 py-1"
           >

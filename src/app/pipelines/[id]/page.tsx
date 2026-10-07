@@ -4,7 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Save, CheckCircle, ArrowLeft, FileCode2, AlignLeft, Play } from "lucide-react";
-import { getPipeline, savePipeline, validatePipeline, type PipelineDefinition } from "@/lib/api";
+import { getPipeline, savePipeline, validatePipeline, deployPipeline, migratePipeline, canManage, apiError, type PipelineDefinition } from "@/lib/api";
+import { useManagementSession } from "@/components/ManagementAccess";
 import PipelineFileTree from "@/components/PipelineFileTree";
 import RunPanel from "@/components/RunPanel";
 
@@ -29,6 +30,7 @@ const DARK_THEME = {
 };
 
 export default function PipelineEditorPage() {
+  const session = useManagementSession();
   const params = useParams();
   const router = useRouter();
   const pipelineId = params.id as string;
@@ -39,20 +41,27 @@ export default function PipelineEditorPage() {
   const [scripts, setScripts] = useState<Record<string, string>>({});
   const [activeFile, setActiveFile] = useState("yaml");
   const [loading, setLoading] = useState(!isNew);
+  const [deploying, setDeploying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{ valid: boolean; errors: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [treeCollapsed, setTreeCollapsed] = useState(false);
+  const [testScriptName, setTestScriptName] = useState<string | undefined>();
   const [showRunPanel, setShowRunPanel] = useState(false);
   const monacoRef = useRef<typeof import("monaco-editor") | null>(null);
 
+  const canEdit = canManage(session, "write", pipelineId) && !pipeline?.migrationRequired;
+  const canTest = canManage(session, "test", pipelineId);
+  const canDeploy = canManage(session, "deploy", pipelineId);
+
   // Extract endpoint and auth from the YAML for the run panel
-  const endpointMatch = yaml.match(/endpoint:\s*(\S+)/);
+  const deployedYaml = pipeline?.activeRevisionId === pipeline?.draftRevisionId ? pipeline?.content.yaml ?? "" : "";
+  const endpointMatch = deployedYaml.match(/endpoint:\s*(\S+)/);
   const triggerEndpoint = endpointMatch?.[1] || undefined;
-  const authUserMatch = yaml.match(/auth:[\s\S]*?user:\s*(.+)/);
-  const authPassMatch = yaml.match(/auth:[\s\S]*?password:\s*["']?([^\n"']+)/);
+  const authUserMatch = deployedYaml.match(/auth:[\s\S]*?user:\s*(.+)/);
+  const authPassMatch = deployedYaml.match(/auth:[\s\S]*?password:\s*["']?([^\n"']+)/);
   const triggerAuthUser = authUserMatch?.[1]?.trim();
   const triggerAuthPass = authPassMatch?.[1]?.trim();
 
@@ -75,7 +84,7 @@ export default function PipelineEditorPage() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [yaml, scripts, pipelineId]);
+  }, [yaml, scripts, pipelineId, pipeline, canEdit, saving]);
 
   async function loadPipeline() {
     setLoading(true);
@@ -92,14 +101,16 @@ export default function PipelineEditorPage() {
   }
 
   async function handleSave() {
+    if (!canEdit || !pipeline || saving) return;
     setSaving(true);
     setError(null);
     try {
-      await savePipeline(pipelineId, { yaml, scripts });
+      const saved = await savePipeline(pipelineId, { yaml, scripts }, pipeline.draftRevisionId);
+      setPipeline(saved);
       setDirty(false);
       setValidationResult(null);
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Save failed");
+    } catch (err) {
+      setError(apiError(err));
     } finally {
       setSaving(false);
     }
@@ -108,14 +119,29 @@ export default function PipelineEditorPage() {
   async function handleValidate() {
     setValidating(true);
     try {
-      await savePipeline(pipelineId, { yaml, scripts });
-      const result = await validatePipeline(pipelineId);
+      const result = await validatePipeline(pipelineId, { yaml, scripts });
       setValidationResult(result);
-    } catch (err: any) {
-      setValidationResult({ valid: false, errors: [err?.message || "Validation request failed"] });
+    } catch (err) {
+      setValidationResult({ valid: false, errors: [err instanceof Error ? err.message : "Validation request failed"] });
     } finally {
       setValidating(false);
     }
+  }
+
+  async function handleDeploy() {
+    if (!pipeline || dirty || !canDeploy || deploying) return;
+    setDeploying(true); setError(null);
+    try { setPipeline(await deployPipeline(pipelineId, pipeline.draftRevisionId)); }
+    catch (failure) { setError(apiError(failure)); }
+    finally { setDeploying(false); }
+  }
+
+  async function handleMigrate() {
+    if (!pipeline || !canDeploy) return;
+    setDeploying(true); setError(null);
+    try { setPipeline(await migratePipeline(pipelineId, pipeline.draftRevisionId)); }
+    catch (failure) { setError(apiError(failure)); }
+    finally { setDeploying(false); }
   }
 
   function handleMonacoMount(monaco: typeof import("monaco-editor")) {
@@ -178,7 +204,7 @@ export default function PipelineEditorPage() {
           {dirty && <span className="text-xs text-[var(--color-text-muted)]">(unsaved)</span>}
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleFormat}
+          <button disabled={!canEdit || saving || deploying} onClick={handleFormat}
             className="flex items-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded hover:bg-[var(--color-bg-hover)]"
             title="Remove extra leading whitespace">
             <AlignLeft size={14} /> Format
@@ -190,27 +216,45 @@ export default function PipelineEditorPage() {
               {validationResult.valid ? "Valid" : `${validationResult.errors.length} error(s)`}
             </span>
           )}
-          <button onClick={handleValidate} disabled={validating}
+          <button onClick={handleValidate} disabled={validating || !canManage(session, "write", pipelineId)}
             className="flex items-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded hover:bg-[var(--color-bg-hover)]">
             <CheckCircle size={14} /> {validating ? "Validating..." : "Validate"}
           </button>
-          <button onClick={handleSave} disabled={saving}
+          <button onClick={handleSave} disabled={saving || !canEdit}
             className="flex items-center gap-1 px-3 py-1.5 text-xs bg-[var(--color-accent)] text-white rounded hover:opacity-90">
-            <Save size={14} /> {saving ? "Saving..." : "Save"}
+            <Save size={14} /> {saving ? "Saving..." : "Save draft"}
           </button>
+          <button onClick={handleDeploy} disabled={dirty || !canDeploy || deploying || saving || pipeline?.migrationRequired}
+            title={dirty ? "Save this draft before deploying" : "Publish this saved draft and activate its endpoints"}
+            className="px-3 py-1.5 text-xs border border-[var(--color-border)] rounded disabled:opacity-40">
+            {deploying ? "Publishing..." : "Deploy"}
+          </button>
+          {!isNew && !isYaml && (
+            <button disabled={dirty || !canTest} title={dirty ? "Save changes before testing this script" : "Test the saved script with a JSON input"}
+              onClick={() => { setTestScriptName(activeFile); setShowRunPanel(true); }}
+              className="px-3 py-1.5 text-xs border border-[var(--color-border)] rounded disabled:opacity-40">
+              Test saved script
+            </button>
+          )}
           {!isNew && (
-            <button onClick={() => setShowRunPanel((s) => !s)}
+            <button disabled={!canTest} onClick={() => { setTestScriptName(undefined); setShowRunPanel((s) => testScriptName ? true : !s); }}
               className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded ${
                 showRunPanel
                   ? "bg-[var(--color-success)] text-black"
                   : "bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] hover:bg-[var(--color-bg-hover)]"
               }`}>
-              <Play size={14} /> Run
+              <Play size={14} /> Test draft
             </button>
           )}
         </div>
       </div>
 
+      <div className="px-4 py-2 text-xs border-b border-[var(--color-border)] flex items-center gap-4 text-[var(--color-text-secondary)]">
+        <span>Draft: {pipeline?.draftRevisionId?.slice(0, 12) ?? "unsaved"}</span>
+        <span>Deployed: {pipeline?.activeRevisionId?.slice(0, 12) ?? "not deployed"}</span>
+        {pipeline?.migrationRequired && <><span>Legacy pipeline is live. Migrate to enable separate drafts.</span>
+          <button onClick={handleMigrate} disabled={!canDeploy || deploying} className="underline disabled:opacity-40">Migrate existing deployment</button></>}
+      </div>
       {/* Error / validation banners */}
       {error && (
         <div className="px-4 py-2 bg-[var(--color-error-bg)] text-xs text-[var(--color-error)] border-b border-[var(--color-error)]">{error}</div>
@@ -226,12 +270,13 @@ export default function PipelineEditorPage() {
         {/* Editor area */}
         <div className="flex flex-1 min-h-0">
           <PipelineFileTree
+            readOnly={!canEdit || saving || deploying}
             yaml={yaml}
             scripts={scripts}
             activeFile={activeFile}
             onSelectFile={setActiveFile}
-            onAddScript={addScript}
-            onRemoveScript={removeScript}
+            onAddScript={canEdit ? addScript : () => {}}
+            onRemoveScript={canEdit ? removeScript : () => {}}
             collapsed={treeCollapsed}
             onToggleCollapsed={() => setTreeCollapsed((c) => !c)}
           />
@@ -247,9 +292,11 @@ export default function PipelineEditorPage() {
                 if (isYaml) setYaml(value ?? "");
                 else setScripts((prev) => ({ ...prev, [activeFile]: value ?? "" }));
                 setDirty(true);
+                setValidationResult(null);
               }}
               beforeMount={handleMonacoMount}
               options={{
+                readOnly: !canEdit || saving || deploying,
                 minimap: { enabled: false },
                 fontSize: 13,
                 lineNumbers: "on",
@@ -266,7 +313,11 @@ export default function PipelineEditorPage() {
         {/* Run panel (bottom) */}
         {showRunPanel && (
           <RunPanel
+            key={testScriptName ?? "pipeline"}
+            scriptName={testScriptName}
             pipelineId={pipelineId}
+            content={{ yaml, scripts }}
+            draftRevisionId={pipeline?.draftRevisionId}
             endpoint={triggerEndpoint}
             authUser={triggerAuthUser}
             authPassword={triggerAuthPass}
