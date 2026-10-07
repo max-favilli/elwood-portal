@@ -116,3 +116,12 @@ The cart example defaults to Postman Echo for delivery. Replace its output URL w
 The same **Start from** gallery now includes authenticated orders, product SQL/SAP and Deldo supplier imports. All three run with bundled mocks and no credentials. Real tests require host-owned Test secret/identity grants; deployment uses separate Run grants. **Steps and data → Connector calls** shows SQL/Blob operation metadata and results/receipts as well as HTTP headers/bodies. See the backend's `docs/connectors.md` and `docs/examples/connectors/README.md` for prerequisites and contracts. The Deldo example includes its `.elwood` scripts and returns five offers/six rejected rows from synthetic CSV.
 
 M5 visual verification (7 October 2026): the Deldo mock flow completed through the portal; Blob metadata and SQL/Blob receipts were expanded, and the SQL receipt was reopened from execution history. See the backend’s `docs/implementation-plan.md` for the complete M5 closeout and review scope. Native cloud hosting and enforced output-blob retention remain M6 requirements.
+
+
+## Portal verification
+
+Use Node 22 (matching CI), then run `npm ci`, `npm test`, `npm run test:components`, `npm run lint`, `npx tsc --noEmit` and `npm run build`.
+
+`npm test` has 120 tests: 112 DSL example fixtures and eight gallery/helper/API/sample checks. `npm run test:components` adds six Vitest/React Testing Library tests that render the pipeline editor and run panel. They verify Validate without saving, exact unsaved snapshots in both real/mock tests, explicit mode selection, save-before-deploy with the new revision, deployment conflict display and read-only permissions. Only Monaco's browser-dependent editor boundary, routing/session context and network calls are mocked. These are component tests, not a new browser walkthrough.
+
+Review follow-up (7 October 2026): these tests, TypeScript and the production build pass. Lint has no errors and three existing hook warnings. An npm audit reports existing application dependency advisories, including a critical advisory against the pinned Next.js 16.2.3 and high advisories against Axios. Dependency upgrades and advisory verification are a separate work package required before an externally reachable installation; the component-test addition does not resolve them.

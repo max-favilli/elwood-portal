@@ -38,7 +38,8 @@ export function apiError(error: unknown): string {
     : error instanceof Error ? error.message : 'Request failed';
 }
 export function canManage(session: ManagementSession | null, operation: string, pipeline?: string): boolean {
-  return !!session?.permissions.includes(operation) && (!pipeline || session.pipelines.includes('*') || session.pipelines.includes(pipeline));
+  return !!session?.permissions.some(value => value.toLowerCase() === operation.toLowerCase()) &&
+    (!pipeline || session.pipelines.includes('*') || session.pipelines.some(value => value.toLowerCase() === pipeline.toLowerCase()));
 }
 
 // ── Types ──
