@@ -30,14 +30,17 @@ const DARK_THEME = {
 };
 
 export default function PipelineEditorPage() {
+  const params = useParams<{ id: string }>();
+  return <PipelineEditor key={params.id} pipelineId={params.id} />;
+}
+
+function PipelineEditor({ pipelineId }: { pipelineId: string }) {
   const session = useManagementSession();
-  const params = useParams();
   const router = useRouter();
-  const pipelineId = params.id as string;
   const isNew = pipelineId === "new";
 
   const [pipeline, setPipeline] = useState<PipelineDefinition | null>(null);
-  const [yaml, setYaml] = useState("");
+  const [yaml, setYaml] = useState(isNew ? DEFAULT_YAML : "");
   const [scripts, setScripts] = useState<Record<string, string>>({});
   const [activeFile, setActiveFile] = useState("yaml");
   const [loading, setLoading] = useState(!isNew);
@@ -46,7 +49,7 @@ export default function PipelineEditorPage() {
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{ valid: boolean; errors: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(isNew);
   const [treeCollapsed, setTreeCollapsed] = useState(false);
   const [testScriptName, setTestScriptName] = useState<string | undefined>();
   const [showRunPanel, setShowRunPanel] = useState(false);
@@ -66,7 +69,7 @@ export default function PipelineEditorPage() {
   const triggerAuthPass = authPassMatch?.[1]?.trim();
 
   useEffect(() => {
-    if (isNew) { setYaml(DEFAULT_YAML); setLoading(false); setDirty(true); return; }
+    if (isNew) return;
     loadPipeline();
   }, [pipelineId]);
 
@@ -87,7 +90,6 @@ export default function PipelineEditorPage() {
   }, [yaml, scripts, pipelineId, pipeline, canEdit, saving]);
 
   async function loadPipeline() {
-    setLoading(true);
     try {
       const data = await getPipeline(pipelineId);
       setPipeline(data);

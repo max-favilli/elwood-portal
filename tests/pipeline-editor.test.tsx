@@ -92,7 +92,7 @@ test("Deploy waits for Save draft and sends the newly saved revision", async () 
   expect(api.deployPipeline).toHaveBeenCalledExactlyOnceWith("orders", "draft-new");
 });
 
-test("Deploy displays revision conflicts without pretending publication succeeded", async () => {
+test("Deploy displays a failed request without pretending publication succeeded", async () => {
   await openEditor();
   vi.mocked(api.deployPipeline).mockRejectedValue(new Error("The draft changed. Reload before deploying."));
   fireEvent.click(screen.getByRole("button", { name: "Deploy" }));

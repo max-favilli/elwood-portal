@@ -15,14 +15,18 @@ export default function ManagementAccess({ children }: { children: React.ReactNo
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("elwood-management-token");
-    if (saved) {
+    let active = true;
+    async function restoreSession() {
+      const saved = sessionStorage.getItem("elwood-management-token");
+      if (!saved) return;
       setManagementToken(saved);
-      getManagementSession().then(setSession).catch(() => setManagementToken("")).finally(() => setBusy(false));
-    } else setBusy(false);
+      const restored = await getManagementSession();
+      if (active) setSession(restored);
+    }
+    restoreSession().catch(() => { if (active) setManagementToken(""); }).finally(() => { if (active) setBusy(false); });
     const expired = () => { setSession(null); setManagementToken(""); };
     window.addEventListener("elwood-session-expired", expired);
-    return () => window.removeEventListener("elwood-session-expired", expired);
+    return () => { active = false; window.removeEventListener("elwood-session-expired", expired); };
   }, []);
 
   async function signIn(event: React.FormEvent) {

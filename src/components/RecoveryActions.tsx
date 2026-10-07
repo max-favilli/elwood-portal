@@ -4,12 +4,18 @@ import { useEffect, useState } from "react";
 import { apiError, canManage, getPipelineRevisions, replayExecution, resumeExecution, type ExecutionState, type PipelineRevision } from "@/lib/api";
 import { useManagementSession } from "@/components/ManagementAccess";
 
-export default function RecoveryActions({ execution, onRecovered }: { execution: ExecutionState; onRecovered: (id: string) => void }) {
+type RecoveryProps = { execution: ExecutionState; onRecovered: (id: string) => void };
+export default function RecoveryActions(props: RecoveryProps) {
+  return <RecoveryForm key={`${props.execution.executionId}:${props.execution.status}`} {...props} />;
+}
+
+function RecoveryForm({ execution, onRecovered }: RecoveryProps) {
   const session = useManagementSession();
   const [revisions, setRevisions] = useState<PipelineRevision[]>([]);
   const [revision, setRevision] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [reviewed, setReviewed] = useState(false);
+  const [replayReviewed, setReplayReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const terminal = [2, 3, 5, "Completed", "Failed", "AwaitingReview"].includes(execution.status);
@@ -30,8 +36,8 @@ export default function RecoveryActions({ execution, onRecovered }: { execution:
     setBusy(true); setError("");
     try {
       const result = action === "resume" ? await resumeExecution(execution.executionId, reviewed)
-        : await replayExecution(execution.executionId, revision || undefined, confirmed);
-      onRecovered(result.executionId); setConfirmed(false); setReviewed(false);
+        : await replayExecution(execution.executionId, revision || undefined, replayReviewed);
+      onRecovered(result.executionId); setConfirmed(false); setReviewed(false); setReplayReviewed(false);
     } catch (error) { setError(apiError(error)); }
     finally { setBusy(false); }
   }
@@ -49,7 +55,7 @@ export default function RecoveryActions({ execution, onRecovered }: { execution:
     <div className="space-y-2 border-t border-[var(--color-border)] pt-3">
       <p>Replay creates a new execution from the original input. Earlier external calls run again.</p>
       <label className="flex gap-2 items-center">Replay revision
-        <select value={revision} disabled={busy} onChange={e => { setRevision(e.target.value); setConfirmed(false); }}
+        <select value={revision} disabled={busy} onChange={e => { setRevision(e.target.value); setConfirmed(false); setReplayReviewed(false); }}
           className="bg-[var(--color-bg-tertiary)] rounded border border-[var(--color-border)] p-1">
           <option value="">Original ({execution.revisionId?.slice(0, 12) ?? "saved snapshot"})</option>
           {revisions.filter(r => r.revisionId !== execution.revisionId).map(r => <option key={r.revisionId} value={r.revisionId}>
@@ -58,8 +64,12 @@ export default function RecoveryActions({ execution, onRecovered }: { execution:
         </select>
       </label>
       <label className="flex gap-2 items-start"><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} />
-        {uncertain ? "I reviewed the uncertain external write and authorize a full replay, which may duplicate it." : "Run all steps again using real systems and the selected revision."}</label>
-      <button disabled={busy || !confirmed} onClick={() => recover("replay")}
+        Run all steps again using real systems and the selected revision.</label>
+      {uncertain && <label className="flex gap-2 items-start">
+        <input type="checkbox" checked={replayReviewed} disabled={busy} onChange={e => setReplayReviewed(e.target.checked)} />
+        I reviewed the uncertain external write and authorize a full replay, which may duplicate it.
+      </label>}
+      <button disabled={busy || !confirmed || (uncertain && !replayReviewed)} onClick={() => recover("replay")}
         className="px-3 py-1.5 rounded border border-[var(--color-border)] disabled:opacity-40">Start fresh replay</button>
     </div>
     {busy && <p>Submitting recovery request...</p>}
