@@ -26,6 +26,11 @@
     "react-hot-toast": "^2.6.0",
     "react-redux": "^9.2.0"
   },
+  "overrides": {
+    "monaco-editor": {
+      "dompurify": "3.4.16"
+    }
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@testing-library/dom": "^10.4.2",
