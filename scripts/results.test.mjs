@@ -100,8 +100,8 @@ test('portal API consumes execution failures and script warnings', async () => {
     assert.deepEqual(requests.slice(-4).map(({ path, method, body, authorization }) => ({ path, method, body, authorization })), [
       { path: '/api/executions/execution-1/resume', method: 'POST', body: { acknowledgeUncertain: false }, authorization: 'Bearer test-token' },
       { path: '/api/executions/execution-1/resume', method: 'POST', body: { acknowledgeUncertain: true }, authorization: 'Bearer test-token' },
-      { path: '/api/executions/execution-1/replay', method: 'POST', body: { acknowledgeUncertain: false }, authorization: 'Bearer test-token' },
-      { path: '/api/executions/execution-1/replay', method: 'POST', body: { revisionId: 'published-revision', acknowledgeUncertain: true }, authorization: 'Bearer test-token' },
+      { path: '/api/executions/execution-1/replay', method: 'POST', body: { acknowledgeUncertain: false, forceProcessing: false }, authorization: 'Bearer test-token' },
+      { path: '/api/executions/execution-1/replay', method: 'POST', body: { revisionId: 'published-revision', acknowledgeUncertain: true, forceProcessing: false }, authorization: 'Bearer test-token' },
     ]);
     const reader = { name: 'reader', permissions: ['read'], pipelines: ['example'] };
     assert.equal(canManage(reader, 'read', 'example'), true);

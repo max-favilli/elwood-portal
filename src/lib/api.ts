@@ -82,7 +82,7 @@ export interface ExecutionState {
   pipelineName: string;
   pipelineId?: string;
   revisionId?: string;
-  status: 'Pending' | 'Running' | 'Completed' | 'Failed' | 'Retrying' | 'AwaitingReview' | number;
+  status: 'Pending' | 'Running' | 'Completed' | 'Failed' | 'Retrying' | 'AwaitingReview' | 'Skipped' | number;
   startedAt: string;
   completedAt?: string;
   durationMs: number;
@@ -93,6 +93,11 @@ export interface ExecutionState {
   testMode?: TestMode;
   durable?: boolean;
   replayOf?: string;
+  duplicateOf?: string;
+  duplicateSource?: string;
+  contentFingerprint?: string;
+  forceProcessing?: boolean;
+  supersededByForcedReplay?: boolean;
   expiresAt?: string;
   retentionSeconds?: number;
 }
@@ -192,7 +197,7 @@ export async function getExecution(id: string): Promise<ExecutionState> {
 
 export type TestMode = 'real' | 'mock';
 export interface LocalTestOptions { testMode: TestMode; mocks?: unknown }
-export interface InspectionDocument { available: boolean; value: unknown }
+export interface InspectionDocument { available: boolean; value: unknown; omitted?: boolean; bytes?: number }
 export interface ConnectorCall {
   connector?: string | null;
   operation?: string | null;
@@ -223,8 +228,8 @@ export interface ConnectorCall {
 export async function resumeExecution(id: string, acknowledgeUncertain = false): Promise<{ executionId: string }> {
   return (await api.post(`/api/executions/${encodeURIComponent(id)}/resume`, { acknowledgeUncertain })).data;
 }
-export async function replayExecution(id: string, revisionId?: string, acknowledgeUncertain = false): Promise<{ executionId: string; replayOf: string }> {
-  return (await api.post(`/api/executions/${encodeURIComponent(id)}/replay`, { revisionId, acknowledgeUncertain })).data;
+export async function replayExecution(id: string, revisionId?: string, acknowledgeUncertain = false, forceProcessing = false): Promise<{ executionId: string; replayOf: string }> {
+  return (await api.post(`/api/executions/${encodeURIComponent(id)}/replay`, { revisionId, acknowledgeUncertain, forceProcessing })).data;
 }
 export interface ExecutionInspection {
   execution: ExecutionState;

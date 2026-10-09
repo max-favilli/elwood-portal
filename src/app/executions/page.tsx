@@ -13,6 +13,8 @@ const STATUS_LABELS: Record<number | string, { label: string; color: string; ico
   3: { label: "Failed", color: "text-[var(--color-error)]", icon: XCircle },
   4: { label: "Waiting to retry", color: "text-[var(--color-accent)]", icon: Clock },
   5: { label: "Awaiting review", color: "text-[var(--color-error)]", icon: Clock },
+  6: { label: "Skipped", color: "text-[var(--color-text-muted)]", icon: CheckCircle2 },
+  Skipped: { label: "Skipped", color: "text-[var(--color-text-muted)]", icon: CheckCircle2 },
   Pending: { label: "Pending", color: "text-[var(--color-text-muted)]", icon: Clock },
   Running: { label: "Running", color: "text-[var(--color-accent)]", icon: Loader2 },
   Completed: { label: "Completed", color: "text-[var(--color-success)]", icon: CheckCircle2 },

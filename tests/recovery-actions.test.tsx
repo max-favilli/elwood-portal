@@ -28,5 +28,15 @@ test.each([false, true])("replay requires a separate uncertain-write acknowledge
   }
   fireEvent.click(replay);
   await waitFor(() => expect(recovered).toHaveBeenCalledWith("replayed"));
-  expect(api.replayExecution).toHaveBeenCalledExactlyOnceWith("original", undefined, uncertain);
+  expect(api.replayExecution).toHaveBeenCalledExactlyOnceWith("original", undefined, uncertain, false);
+});
+
+test("skipped execution can explicitly force replay without enabling resume", async () => {
+  const execution: api.ExecutionState = { pipelineName: "orders", startedAt: "2026-10-08T00:00:00Z", durationMs: 0, errors: [], executionId: "duplicate", pipelineId: "orders", status: "Skipped", durable: true, sources: {}, outputs: {} };
+  render(<RecoveryActions execution={execution} onRecovered={vi.fn()} />);
+  expect(screen.queryByRole("button", { name: "Resume failed steps" })).toBeNull();
+  fireEvent.click(screen.getByLabelText("Run all steps again using real systems and the selected revision."));
+  fireEvent.click(screen.getByLabelText(/Force processing of identical file content/));
+  fireEvent.click(screen.getByRole("button", { name: "Start fresh replay" }));
+  await waitFor(() => expect(api.replayExecution).toHaveBeenCalledExactlyOnceWith("duplicate", undefined, false, true));
 });
