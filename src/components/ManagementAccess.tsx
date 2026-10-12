@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import axios from "axios";
 import { apiError, getManagementSession, setManagementToken, type ManagementSession } from "@/lib/api";
 
 const Session = createContext<ManagementSession | null>(null);
@@ -23,7 +24,11 @@ export default function ManagementAccess({ children }: { children: React.ReactNo
       const restored = await getManagementSession();
       if (active) setSession(restored);
     }
-    restoreSession().catch(() => { if (active) setManagementToken(""); }).finally(() => { if (active) setBusy(false); });
+    restoreSession().catch((failure) => {
+      if (!active) return;
+      if (axios.isAxiosError(failure) && failure.response?.status === 401) setManagementToken("");
+      setError(apiError(failure));
+    }).finally(() => { if (active) setBusy(false); });
     const expired = () => { setSession(null); setManagementToken(""); };
     window.addEventListener("elwood-session-expired", expired);
     return () => { active = false; window.removeEventListener("elwood-session-expired", expired); };
@@ -34,7 +39,10 @@ export default function ManagementAccess({ children }: { children: React.ReactNo
     setBusy(true); setError("");
     setManagementToken(token.trim());
     try { setSession(await getManagementSession()); setToken(""); }
-    catch (failure) { setError(apiError(failure)); setManagementToken(""); }
+    catch (failure) {
+      setError(apiError(failure));
+      if (axios.isAxiosError(failure) && failure.response?.status === 401) setManagementToken("");
+    }
     finally { setBusy(false); }
   }
 

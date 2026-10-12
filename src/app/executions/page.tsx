@@ -50,8 +50,10 @@ export default function ExecutionsPage() {
 
   useEffect(() => { loadExecutions(); }, []);
 
+  const selectedStatus = executions.find(e => e.executionId === selectedId)?.status;
+  const selectedTerminal = selectedStatus !== undefined && [2, 3, 5, 6, "Completed", "Failed", "AwaitingReview", "Skipped"].includes(selectedStatus);
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId || selectedTerminal) return;
     let active = true;
     const refresh = async () => {
       try {
@@ -62,7 +64,7 @@ export default function ExecutionsPage() {
     };
     const timer = setInterval(refresh, 2000);
     return () => { active = false; clearInterval(timer); };
-  }, [selectedId]);
+  }, [selectedId, selectedTerminal]);
 
   async function loadExecutions() {
     setLoading(true);
