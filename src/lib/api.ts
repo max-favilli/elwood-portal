@@ -6,7 +6,7 @@ import { executionError, readWarnings } from './results.ts';
 // In production: set NEXT_PUBLIC_API_URL environment variable.
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -100,6 +100,7 @@ export interface ExecutionState {
   supersededByForcedReplay?: boolean;
   expiresAt?: string;
   retentionSeconds?: number;
+  workProfile?: string;
 }
 
 export interface StepAttempt {

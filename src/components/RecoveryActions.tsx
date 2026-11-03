@@ -20,7 +20,7 @@ function RecoveryForm({ execution, onRecovered }: RecoveryProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const terminal = [2, 3, 5, 6, "Completed", "Failed", "AwaitingReview", "Skipped"].includes(execution.status);
-  const canRecover = execution.durable && !execution.isTest && terminal && canManage(session, "recover", execution.pipelineId);
+  const canRecover = !execution.workProfile && execution.durable && !execution.isTest && terminal && canManage(session, "recover", execution.pipelineId);
   const uncertain = [...Object.values(execution.sources), ...Object.values(execution.outputs)].some(step => step.outcomeUncertain);
   const failed = [3, 5, "Failed", "AwaitingReview"].includes(execution.status);
 
@@ -32,6 +32,7 @@ function RecoveryForm({ execution, onRecovered }: RecoveryProps) {
     return () => { active = false; };
   }, [canRecover, execution.pipelineId]);
 
+  if (execution.workProfile) return <p className="text-xs mb-3">Use item recovery in Steps and data. Whole-execution replay for distributed work is not yet available; it would create a new execution and may repeat completed deliveries.</p>;
   if (!canRecover) return null;
   async function recover(action: "resume" | "replay") {
     setBusy(true); setError("");
