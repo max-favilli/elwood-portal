@@ -35,7 +35,15 @@ start just the portal with `npm run dev`.
 
 Save draft and Validate never publish a pipeline. Test draft runs the current editor snapshot synchronously, with an explicit choice between real systems and mock fixtures. Save the draft, then use **Deploy** to activate that exact revision. Conflicting edits return a reload/reconcile error. Existing filesystem pipelines remain live and display **Migrate existing deployment** before draft editing is enabled. Execution history shows the exact revision used.
 
-For shared credentials, permission scopes, secret grants and the legacy migration procedure, see the backend's [management and deployment guide](../elwood/docs/management-and-deployment.md). Native cloud deployment catalogs remain M6 work.
+For shared credentials, permission scopes, secret grants and the legacy migration procedure, see the backend's [management and deployment guide](https://github.com/max-favilli/elwood/blob/main/docs/management-and-deployment.md). Native Azure catalogs, item inspection, selected retry and acknowledged replay are available in the explicitly enabled distributed runtime.
+
+## Deldo and Eagle pilot installation
+
+Use the compatible backend release and operating limits in the [versioned pilot handoff](https://github.com/max-favilli/elwood/blob/main/docs/pilot-handoff.md). Provisioning, hosting costs and business-system acceptance belong to the consumer project. `dev:all` starts a filesystem development runtime; it does not provision Azure or enable the cloud distributed profile. Draft real/mock testing remains available locally.
+
+For a deployed runtime, set `NEXT_PUBLIC_API_URL` to its HTTPS origin **before** `npm run build`; the browser bundle embeds this value. Run `npm ci`, `npm run build` and `npm start` on the consumer's approved Node.js 22+ host. Configure HTTPS in front of the portal and its exact origin in the runtime's CORS allowlist. Do not put management tokens or connector secrets in `NEXT_PUBLIC_*` settings. Sign in with a scoped runtime identity and verify draft testing, execution/item inspection, selected retry and replay permissions before granting team access.
+
+The backend handoff includes separate installation smoke commands for Deldo and Eagle. A successful portal build does not establish runtime readiness, secret access, retention health or safe SAP/SQL retries.
 
 ## DSL alignment and validation
 
