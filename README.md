@@ -136,7 +136,7 @@ The earlier dependency warning about Next.js 16.2.3/Axios was historical: the se
 
 On 3 November 2026, the compatible patch refresh resolved Next.js to 16.4.4, DOMPurify to 3.4.17 and follow-redirects to 1.16.2. `npm audit --omit=dev` reported zero vulnerabilities. The full development dependency audit still reported 16 moderate and two high advisories; these are not claimed fixed. The standard production build passed with the updated Next.js version.
 
-## Distributed item controls (M7.5, activation pending)
+## Distributed item controls
 
 For an execution with a distributed work profile, **Steps and data → Work items** provides stage selection, journal-derived stage counts with their observation interval/coverage, status filtering, ordinal lookup, bounded pages and item/attempt details. Input/output/receipt previews load only when requested. Empty filtered pages can have a next page; page counts cover that page. Stage counts are interval observations, not an atomic live snapshot, and missing/corrupt observations are unknown. Polling stops for terminal executions; refresh remains available.
 
