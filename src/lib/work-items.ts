@@ -4,6 +4,8 @@ export interface WorkStage {
   stageId: string; stepName: string; stepType: string; generation: string; revisionId: string;
   status: string; itemCount: number; aggregatedItems: number; deadline: string; expiresAt: string;
   recoveryIssue?: string; admitted: boolean;
+  counts?: { startedAt: string; observedAt: string; complete: boolean; scanned: number;
+    pending: number; running: number; completed: number; failed: number; awaitingReview: number; retrying: number; unknown: number };
 }
 export interface WorkItem {
   ordinal: number; status: string; attempt: number; version: number; uncertain: boolean;

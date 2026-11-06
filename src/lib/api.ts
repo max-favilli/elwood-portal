@@ -229,8 +229,11 @@ export interface ConnectorCall {
 export async function resumeExecution(id: string, acknowledgeUncertain = false): Promise<{ executionId: string }> {
   return (await api.post(`/api/executions/${encodeURIComponent(id)}/resume`, { acknowledgeUncertain })).data;
 }
-export async function replayExecution(id: string, revisionId?: string, acknowledgeUncertain = false, forceProcessing = false): Promise<{ executionId: string; replayOf: string }> {
-  return (await api.post(`/api/executions/${encodeURIComponent(id)}/replay`, { revisionId, acknowledgeUncertain, forceProcessing })).data;
+export type DistributedReplay = { requestId: string; scope: "whole-execution"; acknowledgeDuplicates: boolean };
+export const getRecoveryOptions = async (id: string): Promise<{ replayEnabled: boolean }> =>
+  (await api.get(`/api/executions/${encodeURIComponent(id)}/recovery-options`)).data;
+export async function replayExecution(id: string, revisionId?: string, acknowledgeUncertain = false, forceProcessing = false, distributed?: DistributedReplay): Promise<{ executionId: string; replayOf: string }> {
+  return (await api.post(`/api/executions/${encodeURIComponent(id)}/replay`, { revisionId, acknowledgeUncertain, forceProcessing, ...distributed })).data;
 }
 export interface ExecutionInspection {
   execution: ExecutionState;

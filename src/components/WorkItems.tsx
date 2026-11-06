@@ -12,15 +12,20 @@ export default function WorkItems({ execution }: { execution: ExecutionState }) 
   const [stages, setStages] = useState<WorkStage[]>([]);
   const [chosen, setChosen] = useState("");
   const [error, setError] = useState("");
+  const [refreshStages, setRefreshStages] = useState(0);
+  const active = [0, 1, 4, "Pending", "Running", "Retrying"].includes(execution.status);
   useEffect(() => {
-    let active = true;
-    getWorkStages(execution.executionId).then(rows => { if (active) { setStages(rows); setError(""); } })
-      .catch(e => { if (active) setError(apiError(e)); });
-    return () => { active = false; };
-  }, [execution.executionId, execution.status]);
+    let valid = true;
+    const load = () => getWorkStages(execution.executionId).then(rows => { if (valid) { setStages(rows); setError(""); } })
+      .catch(e => { if (valid) setError(apiError(e)); });
+    void load();
+    const timer = active ? setInterval(() => { void load(); }, 5000) : undefined;
+    return () => { valid = false; if (timer) clearInterval(timer); };
+  }, [execution.executionId, execution.status, active, refreshStages]);
   const stage = stages.find(s => s.stageId === chosen) ?? stages[0];
   return <section aria-label="Work items" className="border border-[var(--color-border)] rounded p-3 space-y-2 text-xs">
     <h3 className="font-semibold">Work items</h3>
+    <button className={control} onClick={() => setRefreshStages(v => v + 1)}>Refresh stage counts</button>
     {error && <p role="alert">{error}</p>}
     {!!stages.length && <label>Stage <select className={control} value={stage?.stageId ?? ""} onChange={e => setChosen(e.target.value)}>
       {stages.map(s => <option key={s.stageId} value={s.stageId}>{s.stepType}: {s.stepName} ({s.itemCount} items)</option>)}
@@ -93,6 +98,10 @@ function ItemTable({ execution, stage }: { execution: ExecutionState; stage: Wor
   return <div className="space-y-3">
     <p className="break-all">Revision {stage.revisionId}</p>
     <p>{stage.itemCount} items; {stage.aggregatedItems} aggregated. Retry deadline: {new Date(stage.deadline).toLocaleString()}. History expires: {new Date(stage.expiresAt).toLocaleString()}.</p>
+    {stage.counts ? <div aria-label="Stage status counts">
+      <p>{stage.counts.completed} completed; {stage.counts.failed} failed; {stage.counts.awaitingReview} awaiting review; {stage.counts.running} running; {stage.counts.pending} pending; {stage.counts.retrying} retrying; {stage.counts.unknown} unknown.</p>
+      <p>{stage.counts.complete ? "Full scan" : "Partial scan"}: {stage.counts.scanned} of {stage.itemCount} items observed from {new Date(stage.counts.startedAt).toLocaleString()} to {new Date(stage.counts.observedAt).toLocaleString()}. Counts are journal observations over that interval, not a live snapshot.</p>
+    </div> : <p>Stage counts have not been observed yet. Missing observations are unknown.</p>}
     {stage.recoveryIssue && <p role="alert">{stage.recoveryIssue}</p>}
     <div className="flex flex-wrap gap-2 items-center">
       <label>Status <select className={control} value={filter} onChange={e => { setFilter(e.target.value); setCursor(undefined); setPage(undefined); }}>

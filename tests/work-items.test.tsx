@@ -20,6 +20,17 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+test("partial stage counts show observation coverage and unknown items without claiming a live total", async () => {
+  vi.mocked(work.getWorkStages).mockResolvedValue([{ ...stage, counts: { startedAt: "2026-11-06T12:00:00Z", observedAt: "2026-11-06T12:01:00Z",
+    scanned: 2, complete: false, completed: 1, failed: 0, awaitingReview: 0, pending: 0, running: 0, retrying: 0, unknown: 1 } }]);
+  render(<WorkItems execution={execution} />);
+  expect(await screen.findByLabelText("Stage status counts")).toBeTruthy();
+  expect(screen.getByText(/Partial scan: 2 of 3/)).toBeTruthy();
+  expect(screen.getByText(/1 completed;.*1 unknown/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh stage counts" }));
+  await waitFor(() => expect(work.getWorkStages).toHaveBeenCalledTimes(2));
+});
+
 test("completed items cannot be selected; uncertain retries require a separate acknowledgement", async () => {
   vi.mocked(work.retryWorkItems).mockResolvedValue({ requestId: "id", generation: "generation", revisionId: "revision", items: [{ ordinal: 1, expectedAttempt: 2, status: "accepted" }] });
   render(<WorkItems execution={execution} />);
